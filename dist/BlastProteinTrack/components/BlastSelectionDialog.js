@@ -6,7 +6,7 @@ import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuI
 import ProgressDots from './ProgressDots';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { featuresFromBlastNHits } from '../utils/blastNFeatures';
-import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
+import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
@@ -22,6 +22,14 @@ const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastSelectionDialog({ handleClose, mode, model, regions, }) {
+    const appendBlastProgram = mode === 'blastn-region' ? 'blastn' : 'blastp';
+    const appendableBlastTracks = regions.length === 1
+        ? getAppendableBlastTracks({
+            assemblyName: regions[0].assemblyName,
+            blastProgram: appendBlastProgram,
+            view: model,
+        })
+        : [];
     const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : 'nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
@@ -32,6 +40,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [progress, setProgress] = useState('');
     const [error, setError] = useState();
     const [running, setRunning] = useState(false);
+    const [appendToExistingTrack, setAppendToExistingTrack] = useState(appendableBlastTracks.length > 0);
+    const appendTargetTrack = appendableBlastTracks[0];
     const title = mode === 'blastn-region'
         ? 'BLASTN selected region'
         : 'BLASTP genes in selected region';
@@ -84,7 +94,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             hitLimit: sanitizedHitLimit,
             hspLimit: sanitizedHspLimit,
             hits,
-            idPrefix: sanitizeTrackId(`region_${region.refName}_${region.start}`),
+            idPrefix: sanitizeTrackId(`region_${region.refName}_${region.start}_${rid}`),
             queryLength: sequence.length,
             region,
             showMismatchMarkers,
@@ -93,8 +103,12 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             throw new Error('NCBI BLASTN completed, but no alignments were mapped');
         }
         addBlastFeatureTrack({
+            appendToTrackId: appendToExistingTrack
+                ? appendTargetTrack?.trackId
+                : undefined,
             assemblyName: region.assemblyName,
             baseUrl: ncbiBlastUrl,
+            blastProgram: 'blastn',
             features,
             name: `BLASTN hits - ${regionLabel(region)}`,
             rid,
@@ -107,6 +121,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes);
         const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit);
         const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
+        const runPrefix = sanitizeTrackId(`run_${Date.now()}_${region.refName}_${region.start}`);
         setProgress(`Finding genes in ${regionLabel(region)}...`);
         const genes = await fetchBlastableGenes({ region, view: model });
         if (!genes.length) {
@@ -120,7 +135,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const noSequenceFeatures = [];
         for (const [index, feature] of selectedGenes.entries()) {
             const name = String(getFeatureName(feature));
-            const idPrefix = sanitizeTrackId(`gene_${index + 1}_${name}`);
+            const idPrefix = sanitizeTrackId(`${runPrefix}_gene_${index + 1}_${name}`);
             setProgress(`Translating gene ${index + 1}/${selectedGenes.length}: ${name}`);
             let sequence = '';
             try {
@@ -156,7 +171,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         }
         if (!queries.length) {
             addBlastFeatureTrack({
+                appendToTrackId: appendToExistingTrack
+                    ? appendTargetTrack?.trackId
+                    : undefined,
                 assemblyName: region.assemblyName,
+                blastProgram: 'blastp',
                 features: noSequenceFeatures,
                 name: `BLASTP gene hits - ${regionLabel(region)}`,
                 trackId: sanitizeTrackId(`blastp_genes_no_sequence_${region.refName}_${region.start}_${region.end}_${Date.now()}`),
@@ -224,8 +243,12 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             ...hitFeatures,
         ];
         addBlastFeatureTrack({
+            appendToTrackId: appendToExistingTrack
+                ? appendTargetTrack?.trackId
+                : undefined,
             assemblyName: region.assemblyName,
             baseUrl: ncbiBlastUrl,
+            blastProgram: 'blastp',
             features,
             name: `BLASTP gene hits - ${regionLabel(region)}`,
             rid,
@@ -280,7 +303,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
-                            } }), label: "Show mismatch/gap ticks" }), _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
+                            } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
+                                setAppendToExistingTrack(event.target.checked);
+                            } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track: ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes. Hits are drawn over each query gene CDS.'
                             : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red per-position ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();

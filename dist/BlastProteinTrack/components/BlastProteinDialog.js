@@ -5,7 +5,7 @@ import { getContainingView } from '@jbrowse/core/util';
 import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
 import ProgressDots from './ProgressDots';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
-import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
+import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { queryBlast } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
@@ -16,6 +16,13 @@ const defaultHspLimit = 3;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const view = getContainingView(model);
+    const featureName = getFeatureName(feature);
+    const assemblyName = view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? '';
+    const appendableBlastTracks = getAppendableBlastTracks({
+        assemblyName,
+        blastProgram: 'blastp',
+        view,
+    });
     const [blastDatabase, setBlastDatabase] = useState('nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
@@ -26,7 +33,8 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [proteinSequence, setProteinSequence] = useState('');
     const [sequenceLoading, setSequenceLoading] = useState(false);
     const [running, setRunning] = useState(false);
-    const featureName = getFeatureName(feature);
+    const [appendToExistingTrack, setAppendToExistingTrack] = useState(appendableBlastTracks.length > 0);
+    const appendTargetTrack = appendableBlastTracks[0];
     useEffect(() => {
         let active = true;
         setSequenceLoading(true);
@@ -73,16 +81,20 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             const blastFeatures = featuresFromBlastHits({
                 hspLimit: sanitizedHspLimit,
                 hits,
+                idPrefix: sanitizeTrackId(`${feature.id()}_${rid}`),
                 queryFeature: feature,
                 queryProteinLength: cleanedSequence.length,
                 hitLimit: sanitizedHitLimit,
                 showMismatchMarkers,
             });
-            const assemblyName = view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? '';
             const trackId = sanitizeTrackId(`blastp_${feature.id()}_${rid}`);
             addBlastFeatureTrack({
+                appendToTrackId: appendToExistingTrack
+                    ? appendTargetTrack?.trackId
+                    : undefined,
                 assemblyName,
                 baseUrl: ncbiBlastUrl,
+                blastProgram: 'blastp',
                 features: blastFeatures,
                 name: `BLASTP hits - ${featureName}`,
                 rid,
@@ -116,7 +128,9 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
-                            } }), label: "Show mismatch/gap ticks" }), _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red per-residue ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
+                            } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
+                                setAppendToExistingTrack(event.target.checked);
+                            } }), label: `Append to existing BLASTP track: ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red per-residue ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }

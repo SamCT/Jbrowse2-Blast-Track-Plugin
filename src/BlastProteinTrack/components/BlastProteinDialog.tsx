@@ -16,7 +16,11 @@ import {
 import ProgressDots from './ProgressDots'
 
 import { featuresFromBlastHits } from '../utils/blastFeatures'
-import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig'
+import {
+  addBlastFeatureTrack,
+  getAppendableBlastTracks,
+  sanitizeTrackId,
+} from '../utils/blastTrackConfig'
 import { getFeatureName } from '../utils/featureSequence'
 import { queryBlast } from '../utils/ncbiBlast'
 import { getProteinSequence } from '../utils/proteinFromCds'
@@ -40,6 +44,14 @@ export default function BlastProteinDialog({
   feature: Feature
 }) {
   const view = getContainingView(model) as LinearGenomeViewModel
+  const featureName = getFeatureName(feature)
+  const assemblyName =
+    view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? ''
+  const appendableBlastTracks = getAppendableBlastTracks({
+    assemblyName,
+    blastProgram: 'blastp',
+    view,
+  })
   const [blastDatabase, setBlastDatabase] =
     useState<(typeof blastDatabaseOptions)[number]>('nr')
   const [blastProgram, setBlastProgram] =
@@ -52,8 +64,10 @@ export default function BlastProteinDialog({
   const [proteinSequence, setProteinSequence] = useState('')
   const [sequenceLoading, setSequenceLoading] = useState(false)
   const [running, setRunning] = useState(false)
-
-  const featureName = getFeatureName(feature)
+  const [appendToExistingTrack, setAppendToExistingTrack] = useState(
+    appendableBlastTracks.length > 0,
+  )
+  const appendTargetTrack = appendableBlastTracks[0]
 
   useEffect(() => {
     let active = true
@@ -108,17 +122,20 @@ export default function BlastProteinDialog({
       const blastFeatures = featuresFromBlastHits({
         hspLimit: sanitizedHspLimit,
         hits,
+        idPrefix: sanitizeTrackId(`${feature.id()}_${rid}`),
         queryFeature: feature,
         queryProteinLength: cleanedSequence.length,
         hitLimit: sanitizedHitLimit,
         showMismatchMarkers,
       })
-      const assemblyName =
-        view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? ''
       const trackId = sanitizeTrackId(`blastp_${feature.id()}_${rid}`)
       addBlastFeatureTrack({
+        appendToTrackId: appendToExistingTrack
+          ? appendTargetTrack?.trackId
+          : undefined,
         assemblyName,
         baseUrl: ncbiBlastUrl,
+        blastProgram: 'blastp',
         features: blastFeatures,
         name: `BLASTP hits - ${featureName}`,
         rid,
@@ -216,6 +233,19 @@ export default function BlastProteinDialog({
           }
           label="Show mismatch/gap ticks"
         />
+        {appendTargetTrack ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={appendToExistingTrack}
+                onChange={event => {
+                  setAppendToExistingTrack(event.target.checked)
+                }}
+              />
+            }
+            label={`Append to existing BLASTP track: ${appendTargetTrack.name}`}
+          />
+        ) : null}
         <Typography sx={{ mt: 2 }} variant="body2">
           Query feature: {featureName}
         </Typography>

@@ -17,7 +17,11 @@ import ProgressDots from './ProgressDots'
 
 import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { featuresFromBlastNHits } from '../utils/blastNFeatures'
-import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig'
+import {
+  addBlastFeatureTrack,
+  getAppendableBlastTracks,
+  sanitizeTrackId,
+} from '../utils/blastTrackConfig'
 import { getFeatureName } from '../utils/featureSequence'
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast'
 import { getProteinSequence } from '../utils/proteinFromCds'
@@ -57,6 +61,15 @@ export default function BlastSelectionDialog({
   model: LinearGenomeViewModel
   regions: SelectedRegion[]
 }) {
+  const appendBlastProgram = mode === 'blastn-region' ? 'blastn' : 'blastp'
+  const appendableBlastTracks =
+    regions.length === 1
+      ? getAppendableBlastTracks({
+          assemblyName: regions[0].assemblyName,
+          blastProgram: appendBlastProgram,
+          view: model,
+        })
+      : []
   const [blastDatabase, setBlastDatabase] = useState(
     mode === 'blastn-region' ? 'nt' : 'nr',
   )
@@ -72,6 +85,10 @@ export default function BlastSelectionDialog({
   const [progress, setProgress] = useState('')
   const [error, setError] = useState<unknown>()
   const [running, setRunning] = useState(false)
+  const [appendToExistingTrack, setAppendToExistingTrack] = useState(
+    appendableBlastTracks.length > 0,
+  )
+  const appendTargetTrack = appendableBlastTracks[0]
 
   const title =
     mode === 'blastn-region'
@@ -132,7 +149,9 @@ export default function BlastSelectionDialog({
       hitLimit: sanitizedHitLimit,
       hspLimit: sanitizedHspLimit,
       hits,
-      idPrefix: sanitizeTrackId(`region_${region.refName}_${region.start}`),
+      idPrefix: sanitizeTrackId(
+        `region_${region.refName}_${region.start}_${rid}`,
+      ),
       queryLength: sequence.length,
       region,
       showMismatchMarkers,
@@ -142,8 +161,12 @@ export default function BlastSelectionDialog({
     }
 
     addBlastFeatureTrack({
+      appendToTrackId: appendToExistingTrack
+        ? appendTargetTrack?.trackId
+        : undefined,
       assemblyName: region.assemblyName,
       baseUrl: ncbiBlastUrl,
+      blastProgram: 'blastn',
       features,
       name: `BLASTN hits - ${regionLabel(region)}`,
       rid,
@@ -159,6 +182,9 @@ export default function BlastSelectionDialog({
     const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
+    const runPrefix = sanitizeTrackId(
+      `run_${Date.now()}_${region.refName}_${region.start}`,
+    )
 
     setProgress(`Finding genes in ${regionLabel(region)}...`)
     const genes = await fetchBlastableGenes({ region, view: model })
@@ -186,7 +212,7 @@ export default function BlastSelectionDialog({
 
     for (const [index, feature] of selectedGenes.entries()) {
       const name = String(getFeatureName(feature))
-      const idPrefix = sanitizeTrackId(`gene_${index + 1}_${name}`)
+      const idPrefix = sanitizeTrackId(`${runPrefix}_gene_${index + 1}_${name}`)
       setProgress(
         `Translating gene ${index + 1}/${selectedGenes.length}: ${name}`,
       )
@@ -229,7 +255,11 @@ export default function BlastSelectionDialog({
 
     if (!queries.length) {
       addBlastFeatureTrack({
+        appendToTrackId: appendToExistingTrack
+          ? appendTargetTrack?.trackId
+          : undefined,
         assemblyName: region.assemblyName,
+        blastProgram: 'blastp',
         features: noSequenceFeatures,
         name: `BLASTP gene hits - ${regionLabel(region)}`,
         trackId: sanitizeTrackId(
@@ -306,8 +336,12 @@ export default function BlastSelectionDialog({
     ]
 
     addBlastFeatureTrack({
+      appendToTrackId: appendToExistingTrack
+        ? appendTargetTrack?.trackId
+        : undefined,
       assemblyName: region.assemblyName,
       baseUrl: ncbiBlastUrl,
+      blastProgram: 'blastp',
       features,
       name: `BLASTP gene hits - ${regionLabel(region)}`,
       rid,
@@ -465,6 +499,21 @@ export default function BlastSelectionDialog({
           }
           label="Show mismatch/gap ticks"
         />
+        {appendTargetTrack ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={appendToExistingTrack}
+                onChange={event => {
+                  setAppendToExistingTrack(event.target.checked)
+                }}
+              />
+            }
+            label={`Append to existing ${appendBlastProgram.toUpperCase()} track: ${
+              appendTargetTrack.name
+            }`}
+          />
+        ) : null}
         <Typography sx={{ mt: 2 }} variant="body2">
           Selection: {regionText}
         </Typography>
