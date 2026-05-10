@@ -12,11 +12,11 @@ const blastDatabaseOptions = ['nr', 'nr_clustered_seq'];
 const blastProgramOptions = ['blastp', 'quick-blastp'];
 const defaultHitLimit = 3;
 const defaultHspLimit = 3;
+const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const view = getContainingView(model);
     const [blastDatabase, setBlastDatabase] = useState('nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
-    const [baseUrl, setBaseUrl] = useState('https://blast.ncbi.nlm.nih.gov/Blast.cgi');
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
@@ -66,7 +66,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                 blastDatabase,
                 blastProgram,
                 hitLimit: sanitizedHitLimit,
-                baseUrl,
+                baseUrl: ncbiBlastUrl,
                 onProgress: setProgress,
             });
             const blastFeatures = featuresFromBlastHits({
@@ -81,7 +81,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             const trackId = sanitizeTrackId(`blastp_${feature.id()}_${rid}`);
             addBlastFeatureTrack({
                 assemblyName,
-                baseUrl,
+                baseUrl: ncbiBlastUrl,
                 features: blastFeatures,
                 name: `BLASTP hits - ${featureName}`,
                 rid,
@@ -98,9 +98,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             setRunning(false);
         }
     }
-    return (_jsxs(Dialog, { maxWidth: "lg", title: "BLAST protein and load track", open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", fullWidth: true, label: "NCBI BLAST URL", value: baseUrl, onChange: event => {
-                            setBaseUrl(event.target.value);
-                        } }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
+    return (_jsxs(Dialog, { maxWidth: "lg", title: "BLAST protein and load track", open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                             const nextDatabase = event.target
                                 .value;
                             setBlastDatabase(nextDatabase);

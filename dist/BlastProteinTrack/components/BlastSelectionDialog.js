@@ -19,8 +19,8 @@ const defaultHspLimit = 3;
 const defaultMaxGenes = 10;
 const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
+const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastSelectionDialog({ handleClose, mode, model, regions, }) {
-    const [baseUrl, setBaseUrl] = useState('https://blast.ncbi.nlm.nih.gov/Blast.cgi');
     const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : 'nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
@@ -76,7 +76,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             blastDatabase,
             blastProgram: 'blastn',
             hitLimit: sanitizedHitLimit,
-            baseUrl,
+            baseUrl: ncbiBlastUrl,
             onProgress: setProgress,
         });
         const features = featuresFromBlastNHits({
@@ -93,7 +93,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         }
         addBlastFeatureTrack({
             assemblyName: region.assemblyName,
-            baseUrl,
+            baseUrl: ncbiBlastUrl,
             features,
             name: `BLASTN hits - ${regionLabel(region)}`,
             rid,
@@ -171,7 +171,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             blastDatabase,
             blastProgram,
             hitLimit: sanitizedHitLimit,
-            baseUrl,
+            baseUrl: ncbiBlastUrl,
             onProgress: message => {
                 setProgress(`BLASTP ${queries.length} genes: ${message}`);
             },
@@ -219,7 +219,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const features = [...queryFeatures, ...noSequenceFeatures, ...hitFeatures];
         addBlastFeatureTrack({
             assemblyName: region.assemblyName,
-            baseUrl,
+            baseUrl: ncbiBlastUrl,
             features,
             name: `BLASTP gene hits - ${regionLabel(region)}`,
             rid,
@@ -252,9 +252,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 .join('; '), 'warning');
         }
     }
-    return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", fullWidth: true, label: "NCBI BLAST URL", value: baseUrl, onChange: event => {
-                            setBaseUrl(event.target.value);
-                        } }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
+    return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
                                     setBlastDatabase(nextDatabase);
                                     if (nextDatabase === 'nr_clustered_seq') {

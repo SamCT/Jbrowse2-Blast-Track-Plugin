@@ -41,6 +41,7 @@ const defaultHspLimit = 3
 const defaultMaxGenes = 10
 const defaultMaxRegionBp = 50_000
 const highVolumeGeneWarningThreshold = 10
+const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
 
 export type SelectionBlastMode = 'blastn-region' | 'blastp-genes'
 
@@ -55,9 +56,6 @@ export default function BlastSelectionDialog({
   model: LinearGenomeViewModel
   regions: SelectedRegion[]
 }) {
-  const [baseUrl, setBaseUrl] = useState(
-    'https://blast.ncbi.nlm.nih.gov/Blast.cgi',
-  )
   const [blastDatabase, setBlastDatabase] = useState(
     mode === 'blastn-region' ? 'nt' : 'nr',
   )
@@ -126,7 +124,7 @@ export default function BlastSelectionDialog({
       blastDatabase,
       blastProgram: 'blastn',
       hitLimit: sanitizedHitLimit,
-      baseUrl,
+      baseUrl: ncbiBlastUrl,
       onProgress: setProgress,
     })
     const features = featuresFromBlastNHits({
@@ -144,7 +142,7 @@ export default function BlastSelectionDialog({
 
     addBlastFeatureTrack({
       assemblyName: region.assemblyName,
-      baseUrl,
+      baseUrl: ncbiBlastUrl,
       features,
       name: `BLASTN hits - ${regionLabel(region)}`,
       rid,
@@ -252,7 +250,7 @@ export default function BlastSelectionDialog({
       blastDatabase,
       blastProgram,
       hitLimit: sanitizedHitLimit,
-      baseUrl,
+      baseUrl: ncbiBlastUrl,
       onProgress: message => {
         setProgress(`BLASTP ${queries.length} genes: ${message}`)
       },
@@ -303,7 +301,7 @@ export default function BlastSelectionDialog({
 
     addBlastFeatureTrack({
       assemblyName: region.assemblyName,
-      baseUrl,
+      baseUrl: ncbiBlastUrl,
       features,
       name: `BLASTP gene hits - ${regionLabel(region)}`,
       rid,
@@ -353,15 +351,6 @@ export default function BlastSelectionDialog({
     <Dialog maxWidth="lg" title={title} open onClose={handleClose}>
       <DialogContent sx={{ width: '48rem', maxWidth: '90vw' }}>
         {error ? <ErrorMessage error={error} /> : null}
-        <TextField
-          margin="normal"
-          fullWidth
-          label="NCBI BLAST URL"
-          value={baseUrl}
-          onChange={event => {
-            setBaseUrl(event.target.value)
-          }}
-        />
         {mode === 'blastp-genes' ? (
           <>
             <TextField

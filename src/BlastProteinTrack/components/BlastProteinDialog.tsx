@@ -27,6 +27,7 @@ const blastDatabaseOptions = ['nr', 'nr_clustered_seq'] as const
 const blastProgramOptions = ['blastp', 'quick-blastp'] as const
 const defaultHitLimit = 3
 const defaultHspLimit = 3
+const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
 
 export default function BlastProteinDialog({
   handleClose,
@@ -42,9 +43,6 @@ export default function BlastProteinDialog({
     useState<(typeof blastDatabaseOptions)[number]>('nr')
   const [blastProgram, setBlastProgram] =
     useState<(typeof blastProgramOptions)[number]>('quick-blastp')
-  const [baseUrl, setBaseUrl] = useState(
-    'https://blast.ncbi.nlm.nih.gov/Blast.cgi',
-  )
   const [hitLimit, setHitLimit] = useState(defaultHitLimit)
   const [hspLimit, setHspLimit] = useState(defaultHspLimit)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
@@ -103,7 +101,7 @@ export default function BlastProteinDialog({
         blastDatabase,
         blastProgram,
         hitLimit: sanitizedHitLimit,
-        baseUrl,
+        baseUrl: ncbiBlastUrl,
         onProgress: setProgress,
       })
       const blastFeatures = featuresFromBlastHits({
@@ -119,7 +117,7 @@ export default function BlastProteinDialog({
       const trackId = sanitizeTrackId(`blastp_${feature.id()}_${rid}`)
       addBlastFeatureTrack({
         assemblyName,
-        baseUrl,
+        baseUrl: ncbiBlastUrl,
         features: blastFeatures,
         name: `BLASTP hits - ${featureName}`,
         rid,
@@ -144,15 +142,6 @@ export default function BlastProteinDialog({
     >
       <DialogContent sx={{ width: '48rem', maxWidth: '90vw' }}>
         {error ? <ErrorMessage error={error} /> : null}
-        <TextField
-          margin="normal"
-          fullWidth
-          label="NCBI BLAST URL"
-          value={baseUrl}
-          onChange={event => {
-            setBaseUrl(event.target.value)
-          }}
-        />
         <TextField
           margin="normal"
           select
