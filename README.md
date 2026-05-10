@@ -30,30 +30,6 @@ For testing directly from the GitHub repository before npm publishing, use:
 }
 ```
 
-## Public Release Checklist
-
-1. Create a public GitHub repository for this source tree, for example `jbrowse-plugin-blast-track`.
-2. Add the final repository metadata to `package.json`, especially `repository`, `homepage`, `bugs`, and `author`.
-3. Publish the package to npm with `npm publish --access public`.
-4. Test the published plugin URL in a clean JBrowse session:
-
-```text
-https://unpkg.com/jbrowse-plugin-blast-track/dist/jbrowse-plugin-blast-track.umd.production.min.js
-```
-
-5. Open a pull request to `GMOD/jbrowse-plugin-list` adding an entry like:
-
-```json
-{
-  "name": "BlastTrack",
-  "authors": ["Your name"],
-  "description": "Run NCBI BLAST from JBrowse feature and region selections and render hits as same-view tracks.",
-  "location": "https://github.com/SamCT/Jbrowse2-Blast-Track-Plugin",
-  "url": "https://unpkg.com/jbrowse-plugin-blast-track/dist/jbrowse-plugin-blast-track.umd.production.min.js",
-  "license": "GPL-3.0-only"
-}
-```
-
 ## Workflow
 
 1. Right-click a `gene`, `mRNA`, or `transcript` feature in a linear genome view.
