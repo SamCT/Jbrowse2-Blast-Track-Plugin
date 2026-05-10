@@ -64,7 +64,6 @@ This intentionally does not launch the MSA plugin's MSA/tree view. It borrows th
 ## NCBI Usage Behavior
 
 - BLAST submissions include `tool=BlastTrack`.
-- The dialogs include an optional contact email field, stored in browser local storage, and sent as NCBI's `email` parameter when provided.
 - BLAST submissions are queued in the browser runtime so separate NCBI submissions start at least 10 seconds apart.
 - RID status polling happens once per minute.
 - Region gene BLASTP uses one multi-FASTA request for the selected genes instead of one request per gene.

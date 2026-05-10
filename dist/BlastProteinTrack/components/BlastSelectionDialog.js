@@ -8,7 +8,6 @@ import { featuresFromBlastNHits } from '../utils/blastNFeatures';
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast';
-import { readStoredContactEmail, storeContactEmail, } from '../utils/ncbiSettings';
 import { getProteinSequence } from '../utils/proteinFromCds';
 import { queryGeneFeature } from '../utils/queryGeneFeatures';
 import { fetchBlastableGenes, fetchRegionSequence, regionLabel, } from '../utils/regionData';
@@ -22,7 +21,6 @@ const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
 export default function BlastSelectionDialog({ handleClose, mode, model, regions, }) {
     const [baseUrl, setBaseUrl] = useState('https://blast.ncbi.nlm.nih.gov/Blast.cgi');
-    const [contactEmail, setContactEmail] = useState(readStoredContactEmail);
     const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : 'nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
@@ -63,8 +61,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const region = getSingleRegion(regions);
         const regionLength = region.end - region.start;
         const sanitizedMaxRegionBp = sanitizeMaxRegionBp(maxRegionBp);
-        const sanitizedContactEmail = contactEmail.trim();
-        storeContactEmail(sanitizedContactEmail);
         if (regionLength > sanitizedMaxRegionBp) {
             throw new Error(`Selected region is ${regionLength.toLocaleString()} bp. Increase "Max region bp" to submit the whole region.`);
         }
@@ -79,7 +75,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             query: fastaRecord(regionLabel(region), sequence),
             blastDatabase,
             blastProgram: 'blastn',
-            contactEmail: sanitizedContactEmail,
             hitLimit: sanitizedHitLimit,
             baseUrl,
             onProgress: setProgress,
@@ -111,8 +106,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes);
         const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit);
         const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
-        const sanitizedContactEmail = contactEmail.trim();
-        storeContactEmail(sanitizedContactEmail);
         setProgress(`Finding genes in ${regionLabel(region)}...`);
         const genes = await fetchBlastableGenes({ region, view: model });
         if (!genes.length) {
@@ -164,7 +157,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 .join('\n'),
             blastDatabase,
             blastProgram,
-            contactEmail: sanitizedContactEmail,
             hitLimit: sanitizedHitLimit,
             baseUrl,
             onProgress: message => {
@@ -249,8 +241,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     }
     return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", fullWidth: true, label: "NCBI BLAST URL", value: baseUrl, onChange: event => {
                             setBaseUrl(event.target.value);
-                        } }), _jsx(TextField, { margin: "normal", fullWidth: true, label: "Contact email for NCBI (optional)", helperText: "NCBI requests that API users provide email and tool parameters for problem contact.", value: contactEmail, onChange: event => {
-                            setContactEmail(event.target.value);
                         } }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
                                     setBlastDatabase(nextDatabase);

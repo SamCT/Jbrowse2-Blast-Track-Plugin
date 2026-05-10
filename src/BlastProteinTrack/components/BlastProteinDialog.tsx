@@ -18,10 +18,6 @@ import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig'
 import { getFeatureName } from '../utils/featureSequence'
 import { queryBlast } from '../utils/ncbiBlast'
-import {
-  readStoredContactEmail,
-  storeContactEmail,
-} from '../utils/ncbiSettings'
 import { getProteinSequence } from '../utils/proteinFromCds'
 
 import type { AbstractTrackModel, Feature } from '@jbrowse/core/util'
@@ -49,7 +45,6 @@ export default function BlastProteinDialog({
   const [baseUrl, setBaseUrl] = useState(
     'https://blast.ncbi.nlm.nih.gov/Blast.cgi',
   )
-  const [contactEmail, setContactEmail] = useState(readStoredContactEmail)
   const [hitLimit, setHitLimit] = useState(defaultHitLimit)
   const [hspLimit, setHspLimit] = useState(defaultHspLimit)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
@@ -101,15 +96,12 @@ export default function BlastProteinDialog({
       setRunning(true)
       setError(undefined)
       const cleanedSequence = proteinSequence.replaceAll(/[^A-Za-z*]/g, '')
-      const sanitizedContactEmail = contactEmail.trim()
       const sanitizedHitLimit = sanitizeHitLimit(hitLimit)
       const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
-      storeContactEmail(sanitizedContactEmail)
       const { hits, rid } = await queryBlast({
         query: `>${featureName}\n${cleanedSequence}`,
         blastDatabase,
         blastProgram,
-        contactEmail: sanitizedContactEmail,
         hitLimit: sanitizedHitLimit,
         baseUrl,
         onProgress: setProgress,
@@ -159,16 +151,6 @@ export default function BlastProteinDialog({
           value={baseUrl}
           onChange={event => {
             setBaseUrl(event.target.value)
-          }}
-        />
-        <TextField
-          margin="normal"
-          fullWidth
-          label="Contact email for NCBI (optional)"
-          helperText="NCBI requests that API users provide email and tool parameters for problem contact."
-          value={contactEmail}
-          onChange={event => {
-            setContactEmail(event.target.value)
           }}
         />
         <TextField

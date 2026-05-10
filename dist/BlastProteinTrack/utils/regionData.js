@@ -25,7 +25,7 @@ export async function fetchRegionSequence({ region, view, }) {
 }
 export async function fetchBlastableGenes({ region, view, }) {
     const session = getSession(view);
-    const trackConfs = Object.values(session.getTracksById());
+    const trackConfs = getTrackConfs(session);
     const featuresById = new Map();
     for (const trackConf of trackConfs) {
         if (!isCandidateFeatureTrack(trackConf, region.assemblyName)) {
@@ -46,6 +46,23 @@ export async function fetchBlastableGenes({ region, view, }) {
         }
     }
     return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
+}
+function getTrackConfs(session) {
+    const maybeSession = session;
+    if (typeof maybeSession.getTracksById === 'function') {
+        return Object.values(maybeSession.getTracksById());
+    }
+    const assemblies = (maybeSession.jbrowse?.assemblies ??
+        []);
+    const temporaryAssemblies = (maybeSession.temporaryAssemblies ??
+        []);
+    return [
+        ...(maybeSession.jbrowse?.tracks ?? []),
+        ...(maybeSession.sessionTracks ?? []),
+        ...assemblies.flatMap(assembly => assembly.sequence ?? []),
+        ...temporaryAssemblies.flatMap(assembly => assembly.sequence ?? []),
+        ...(maybeSession.connectionInstances ?? []).flatMap(connection => connection.tracks ?? []),
+    ];
 }
 export function regionLabel(region) {
     return `${region.refName}:${region.start + 1}-${region.end}`;

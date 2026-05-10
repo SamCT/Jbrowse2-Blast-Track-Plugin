@@ -54,7 +54,7 @@ export async function fetchBlastableGenes({
   view: LinearGenomeViewModel
 }) {
   const session = getSession(view) as AbstractSessionModel
-  const trackConfs = Object.values(session.getTracksById())
+  const trackConfs = getTrackConfs(session)
   const featuresById = new Map<string, Feature>()
 
   for (const trackConf of trackConfs) {
@@ -84,6 +84,38 @@ export async function fetchBlastableGenes({
   return [...featuresById.values()].sort(
     (a, b) => (a.get('start') as number) - (b.get('start') as number),
   )
+}
+
+function getTrackConfs(session: AbstractSessionModel) {
+  const maybeSession = session as AbstractSessionModel & {
+    getTracksById?: () => Record<string, AnyConfigurationModel>
+    jbrowse?: {
+      assemblies?: AnyConfigurationModel[]
+      tracks?: AnyConfigurationModel[]
+    }
+    sessionTracks?: AnyConfigurationModel[]
+    temporaryAssemblies?: AnyConfigurationModel[]
+    connectionInstances?: { tracks?: AnyConfigurationModel[] }[]
+  }
+
+  if (typeof maybeSession.getTracksById === 'function') {
+    return Object.values(maybeSession.getTracksById())
+  }
+
+  const assemblies = (maybeSession.jbrowse?.assemblies ??
+    []) as { sequence?: AnyConfigurationModel }[]
+  const temporaryAssemblies = (maybeSession.temporaryAssemblies ??
+    []) as { sequence?: AnyConfigurationModel }[]
+
+  return [
+    ...(maybeSession.jbrowse?.tracks ?? []),
+    ...(maybeSession.sessionTracks ?? []),
+    ...assemblies.flatMap(assembly => assembly.sequence ?? []),
+    ...temporaryAssemblies.flatMap(assembly => assembly.sequence ?? []),
+    ...(maybeSession.connectionInstances ?? []).flatMap(
+      connection => connection.tracks ?? [],
+    ),
+  ]
 }
 
 export function regionLabel(region: SelectedRegion) {

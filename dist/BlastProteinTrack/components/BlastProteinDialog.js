@@ -7,7 +7,6 @@ import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { queryBlast } from '../utils/ncbiBlast';
-import { readStoredContactEmail, storeContactEmail, } from '../utils/ncbiSettings';
 import { getProteinSequence } from '../utils/proteinFromCds';
 const blastDatabaseOptions = ['nr', 'nr_clustered_seq'];
 const blastProgramOptions = ['blastp', 'quick-blastp'];
@@ -18,7 +17,6 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [blastDatabase, setBlastDatabase] = useState('nr');
     const [blastProgram, setBlastProgram] = useState('quick-blastp');
     const [baseUrl, setBaseUrl] = useState('https://blast.ncbi.nlm.nih.gov/Blast.cgi');
-    const [contactEmail, setContactEmail] = useState(readStoredContactEmail);
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
@@ -61,15 +59,12 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             setRunning(true);
             setError(undefined);
             const cleanedSequence = proteinSequence.replaceAll(/[^A-Za-z*]/g, '');
-            const sanitizedContactEmail = contactEmail.trim();
             const sanitizedHitLimit = sanitizeHitLimit(hitLimit);
             const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
-            storeContactEmail(sanitizedContactEmail);
             const { hits, rid } = await queryBlast({
                 query: `>${featureName}\n${cleanedSequence}`,
                 blastDatabase,
                 blastProgram,
-                contactEmail: sanitizedContactEmail,
                 hitLimit: sanitizedHitLimit,
                 baseUrl,
                 onProgress: setProgress,
@@ -105,8 +100,6 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     }
     return (_jsxs(Dialog, { maxWidth: "lg", title: "BLAST protein and load track", open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", fullWidth: true, label: "NCBI BLAST URL", value: baseUrl, onChange: event => {
                             setBaseUrl(event.target.value);
-                        } }), _jsx(TextField, { margin: "normal", fullWidth: true, label: "Contact email for NCBI (optional)", helperText: "NCBI requests that API users provide email and tool parameters for problem contact.", value: contactEmail, onChange: event => {
-                            setContactEmail(event.target.value);
                         } }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                             const nextDatabase = event.target
                                 .value;

@@ -19,10 +19,6 @@ import { featuresFromBlastNHits } from '../utils/blastNFeatures'
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig'
 import { getFeatureName } from '../utils/featureSequence'
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast'
-import {
-  readStoredContactEmail,
-  storeContactEmail,
-} from '../utils/ncbiSettings'
 import { getProteinSequence } from '../utils/proteinFromCds'
 import { queryGeneFeature } from '../utils/queryGeneFeatures'
 import {
@@ -62,7 +58,6 @@ export default function BlastSelectionDialog({
   const [baseUrl, setBaseUrl] = useState(
     'https://blast.ncbi.nlm.nih.gov/Blast.cgi',
   )
-  const [contactEmail, setContactEmail] = useState(readStoredContactEmail)
   const [blastDatabase, setBlastDatabase] = useState(
     mode === 'blastn-region' ? 'nt' : 'nr',
   )
@@ -110,8 +105,6 @@ export default function BlastSelectionDialog({
     const region = getSingleRegion(regions)
     const regionLength = region.end - region.start
     const sanitizedMaxRegionBp = sanitizeMaxRegionBp(maxRegionBp)
-    const sanitizedContactEmail = contactEmail.trim()
-    storeContactEmail(sanitizedContactEmail)
     if (regionLength > sanitizedMaxRegionBp) {
       throw new Error(
         `Selected region is ${regionLength.toLocaleString()} bp. Increase "Max region bp" to submit the whole region.`,
@@ -132,7 +125,6 @@ export default function BlastSelectionDialog({
       query: fastaRecord(regionLabel(region), sequence),
       blastDatabase,
       blastProgram: 'blastn',
-      contactEmail: sanitizedContactEmail,
       hitLimit: sanitizedHitLimit,
       baseUrl,
       onProgress: setProgress,
@@ -168,8 +160,6 @@ export default function BlastSelectionDialog({
     const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
-    const sanitizedContactEmail = contactEmail.trim()
-    storeContactEmail(sanitizedContactEmail)
 
     setProgress(`Finding genes in ${regionLabel(region)}...`)
     const genes = await fetchBlastableGenes({ region, view: model })
@@ -245,7 +235,6 @@ export default function BlastSelectionDialog({
         .join('\n'),
       blastDatabase,
       blastProgram,
-      contactEmail: sanitizedContactEmail,
       hitLimit: sanitizedHitLimit,
       baseUrl,
       onProgress: message => {
@@ -355,16 +344,6 @@ export default function BlastSelectionDialog({
           value={baseUrl}
           onChange={event => {
             setBaseUrl(event.target.value)
-          }}
-        />
-        <TextField
-          margin="normal"
-          fullWidth
-          label="Contact email for NCBI (optional)"
-          helperText="NCBI requests that API users provide email and tool parameters for problem contact."
-          value={contactEmail}
-          onChange={event => {
-            setContactEmail(event.target.value)
           }}
         />
         {mode === 'blastp-genes' ? (
