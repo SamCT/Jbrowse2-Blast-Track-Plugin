@@ -49,9 +49,6 @@ export async function fetchBlastableGenes({ region, view, }) {
 }
 function getTrackConfs(session) {
     const maybeSession = session;
-    if (typeof maybeSession.getTracksById === 'function') {
-        return Object.values(maybeSession.getTracksById());
-    }
     const assemblies = (maybeSession.jbrowse?.assemblies ??
         []);
     const temporaryAssemblies = (maybeSession.temporaryAssemblies ??

@@ -88,7 +88,6 @@ export async function fetchBlastableGenes({
 
 function getTrackConfs(session: AbstractSessionModel) {
   const maybeSession = session as AbstractSessionModel & {
-    getTracksById?: () => Record<string, AnyConfigurationModel>
     jbrowse?: {
       assemblies?: AnyConfigurationModel[]
       tracks?: AnyConfigurationModel[]
@@ -96,10 +95,6 @@ function getTrackConfs(session: AbstractSessionModel) {
     sessionTracks?: AnyConfigurationModel[]
     temporaryAssemblies?: AnyConfigurationModel[]
     connectionInstances?: { tracks?: AnyConfigurationModel[] }[]
-  }
-
-  if (typeof maybeSession.getTracksById === 'function') {
-    return Object.values(maybeSession.getTracksById())
   }
 
   const assemblies = (maybeSession.jbrowse?.assemblies ??
