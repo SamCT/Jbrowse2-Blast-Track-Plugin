@@ -1,6 +1,6 @@
 import type { FromConfigFeature } from './blastTrackConfig';
 import type { Feature } from '@jbrowse/core/util';
-export type QueryGeneBlastStatus = 'hits' | 'no_hits' | 'no_report' | 'no_sequence';
+export type QueryGeneBlastStatus = 'no_hits' | 'no_report' | 'no_sequence';
 export declare function queryGeneFeature({ feature, hitCount, idPrefix, reportMatchedBy, reportQueryId, reportQueryTitle, status, statusDetail, }: {
     feature: Feature;
     hitCount: number;

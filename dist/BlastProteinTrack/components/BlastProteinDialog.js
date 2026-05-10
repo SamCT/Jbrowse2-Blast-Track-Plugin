@@ -1,8 +1,9 @@
-import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getContainingView } from '@jbrowse/core/util';
-import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, LinearProgress, MenuItem, TextField, Typography, } from '@mui/material';
+import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
+import ProgressDots from './ProgressDots';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
@@ -115,7 +116,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
-                            } }), label: "Show mismatch/gap ticks" }), _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red per-residue ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsxs(_Fragment, { children: [_jsx(LinearProgress, { sx: { mt: 2 } }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: progress })] })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
+                            } }), label: "Show mismatch/gap ticks" }), _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red per-residue ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }

@@ -2,7 +2,8 @@ import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-run
 import { useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getSession } from '@jbrowse/core/util';
-import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, LinearProgress, MenuItem, TextField, Typography, } from '@mui/material';
+import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
+import ProgressDots from './ProgressDots';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { featuresFromBlastNHits } from '../utils/blastNFeatures';
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig';
@@ -198,25 +199,30 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             hitFeaturesByGene.set(feature, renderedHits);
             return renderedHits;
         });
-        const queryFeatures = queries.map(({ feature, idPrefix }) => {
+        const queryStatusFeatures = queries.flatMap(({ feature, idPrefix }) => {
             const renderedHits = hitFeaturesByGene.get(feature) ?? [];
             const reportMatch = reportMatchesByGene.get(feature);
-            const status = renderedHits.length
-                ? 'hits'
-                : reportMatch?.report
-                    ? 'no_hits'
-                    : 'no_report';
-            return queryGeneFeature({
-                feature,
-                hitCount: renderedHits.length,
-                idPrefix,
-                reportMatchedBy: reportMatch?.matchedBy,
-                reportQueryId: reportMatch?.report?.queryId,
-                reportQueryTitle: reportMatch?.report?.queryTitle,
-                status,
-            });
+            if (renderedHits.length) {
+                return [];
+            }
+            const status = reportMatch?.report ? 'no_hits' : 'no_report';
+            return [
+                queryGeneFeature({
+                    feature,
+                    hitCount: 0,
+                    idPrefix,
+                    reportMatchedBy: reportMatch?.matchedBy,
+                    reportQueryId: reportMatch?.report?.queryId,
+                    reportQueryTitle: reportMatch?.report?.queryTitle,
+                    status,
+                }),
+            ];
         });
-        const features = [...queryFeatures, ...noSequenceFeatures, ...hitFeatures];
+        const features = [
+            ...queryStatusFeatures,
+            ...noSequenceFeatures,
+            ...hitFeatures,
+        ];
         addBlastFeatureTrack({
             assemblyName: region.assemblyName,
             baseUrl: ncbiBlastUrl,
@@ -228,8 +234,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         });
         const skippedByLimit = genes.length - selectedGenes.length;
         const skippedNoSequence = selectedGenes.length - queries.length;
-        const submittedWithoutHits = queryFeatures.filter(feature => feature.blastStatus === 'no_hits').length;
-        const submittedWithoutMatchedReport = queryFeatures.filter(feature => feature.blastStatus === 'no_report').length;
+        const submittedWithoutHits = queryStatusFeatures.filter(feature => feature.blastStatus === 'no_hits').length;
+        const submittedWithoutMatchedReport = queryStatusFeatures.filter(feature => feature.blastStatus === 'no_report').length;
         if (skippedByLimit ||
             skippedNoSequence ||
             submittedWithoutHits ||
@@ -276,7 +282,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes. Hits are drawn over each query gene CDS.'
-                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red per-position ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute." }), running ? (_jsxs(_Fragment, { children: [_jsx(LinearProgress, { sx: { mt: 2 } }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: progress })] })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
+                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red per-position ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }

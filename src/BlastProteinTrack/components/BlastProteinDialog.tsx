@@ -8,11 +8,12 @@ import {
   DialogActions,
   DialogContent,
   FormControlLabel,
-  LinearProgress,
   MenuItem,
   TextField,
   Typography,
 } from '@mui/material'
+
+import ProgressDots from './ProgressDots'
 
 import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { addBlastFeatureTrack, sanitizeTrackId } from '../utils/blastTrackConfig'
@@ -232,12 +233,7 @@ export default function BlastProteinDialog({
           polls each RID once per minute.
         </Typography>
         {running ? (
-          <>
-            <LinearProgress sx={{ mt: 2 }} />
-            <Typography sx={{ mt: 1 }} variant="body2">
-              {progress}
-            </Typography>
-          </>
+          <ProgressDots message={progress} />
         ) : null}
       </DialogContent>
       <DialogActions>

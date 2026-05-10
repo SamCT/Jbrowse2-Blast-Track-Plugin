@@ -8,11 +8,12 @@ import {
   DialogActions,
   DialogContent,
   FormControlLabel,
-  LinearProgress,
   MenuItem,
   TextField,
   Typography,
 } from '@mui/material'
+
+import ProgressDots from './ProgressDots'
 
 import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { featuresFromBlastNHits } from '../utils/blastNFeatures'
@@ -279,25 +280,30 @@ export default function BlastSelectionDialog({
       return renderedHits
     }) as FromConfigFeature[]
 
-    const queryFeatures = queries.map(({ feature, idPrefix }) => {
+    const queryStatusFeatures = queries.flatMap(({ feature, idPrefix }) => {
       const renderedHits = hitFeaturesByGene.get(feature) ?? []
       const reportMatch = reportMatchesByGene.get(feature)
-      const status = renderedHits.length
-        ? 'hits'
-        : reportMatch?.report
-          ? 'no_hits'
-          : 'no_report'
-      return queryGeneFeature({
-        feature,
-        hitCount: renderedHits.length,
-        idPrefix,
-        reportMatchedBy: reportMatch?.matchedBy,
-        reportQueryId: reportMatch?.report?.queryId,
-        reportQueryTitle: reportMatch?.report?.queryTitle,
-        status,
-      })
+      if (renderedHits.length) {
+        return []
+      }
+      const status = reportMatch?.report ? 'no_hits' : 'no_report'
+      return [
+        queryGeneFeature({
+          feature,
+          hitCount: 0,
+          idPrefix,
+          reportMatchedBy: reportMatch?.matchedBy,
+          reportQueryId: reportMatch?.report?.queryId,
+          reportQueryTitle: reportMatch?.report?.queryTitle,
+          status,
+        }),
+      ]
     })
-    const features = [...queryFeatures, ...noSequenceFeatures, ...hitFeatures]
+    const features = [
+      ...queryStatusFeatures,
+      ...noSequenceFeatures,
+      ...hitFeatures,
+    ]
 
     addBlastFeatureTrack({
       assemblyName: region.assemblyName,
@@ -313,10 +319,10 @@ export default function BlastSelectionDialog({
 
     const skippedByLimit = genes.length - selectedGenes.length
     const skippedNoSequence = selectedGenes.length - queries.length
-    const submittedWithoutHits = queryFeatures.filter(
+    const submittedWithoutHits = queryStatusFeatures.filter(
       feature => feature.blastStatus === 'no_hits',
     ).length
-    const submittedWithoutMatchedReport = queryFeatures.filter(
+    const submittedWithoutMatchedReport = queryStatusFeatures.filter(
       feature => feature.blastStatus === 'no_report',
     ).length
     if (
@@ -477,12 +483,7 @@ export default function BlastSelectionDialog({
           per minute.
         </Typography>
         {running ? (
-          <>
-            <LinearProgress sx={{ mt: 2 }} />
-            <Typography sx={{ mt: 1 }} variant="body2">
-              {progress}
-            </Typography>
-          </>
+          <ProgressDots message={progress} />
         ) : null}
       </DialogContent>
       <DialogActions>

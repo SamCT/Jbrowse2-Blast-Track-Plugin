@@ -6,7 +6,6 @@ import type { JsonFeature } from './proteinFromCds'
 import type { Feature } from '@jbrowse/core/util'
 
 export type QueryGeneBlastStatus =
-  | 'hits'
   | 'no_hits'
   | 'no_report'
   | 'no_sequence'
@@ -36,7 +35,7 @@ export function queryGeneFeature({
   const name = String(getFeatureName(feature))
   const refName = json.refName ?? (feature.get('refName') as string)
   const cds = getBestCdsSet(json)
-  const description = [statusDescription(status, hitCount), statusDetail]
+  const description = [statusDescription(status), statusDetail]
     .filter(Boolean)
     .join('; ')
 
@@ -45,8 +44,8 @@ export function queryGeneFeature({
     refName,
     start: json.start,
     end: json.end,
-    type: status === 'hits' ? 'gene' : 'match',
-    name: status === 'hits' ? name : `${name} (${statusLabel(status)})`,
+    type: 'match',
+    name: `${name} (${statusLabel(status)})`,
     id: `${name}_blast_query`,
     gene_id: name,
     strand: json.strand ?? 1,
@@ -61,29 +60,11 @@ export function queryGeneFeature({
     hitCount,
     description,
     note: description,
-    subfeatures:
-      status === 'hits'
-        ? cds.map((sub, index) => ({
-            uniqueId: `${idPrefix}_query_cds_${index + 1}`,
-            refName,
-            start: sub.start,
-            end: sub.end,
-            type: 'CDS',
-            name: `query CDS ${index + 1}`,
-            strand: sub.strand ?? json.strand ?? 1,
-            source: 'BLASTP query gene',
-            blastRole: 'query',
-            blastStatus: status,
-            description,
-          }))
-        : undefined,
+    cdsCount: cds.length,
   }
 }
 
-function statusDescription(status: QueryGeneBlastStatus, hitCount: number) {
-  if (status === 'hits') {
-    return `BLASTP query gene; ${hitCount} hit${hitCount === 1 ? '' : 's'} rendered`
-  }
+function statusDescription(status: QueryGeneBlastStatus) {
   if (status === 'no_sequence') {
     return 'BLASTP query gene; no CDS/protein sequence was available, so it was not submitted'
   }
