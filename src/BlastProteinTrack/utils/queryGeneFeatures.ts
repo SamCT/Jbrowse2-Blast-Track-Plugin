@@ -19,6 +19,7 @@ export function queryGeneFeature({
   reportQueryId,
   reportQueryTitle,
   status,
+  statusDetail,
 }: {
   feature: Feature
   hitCount: number
@@ -27,6 +28,7 @@ export function queryGeneFeature({
   reportQueryId?: string
   reportQueryTitle?: string
   status: QueryGeneBlastStatus
+  statusDetail?: string
 }): FromConfigFeature {
   const json = feature.toJSON() as JsonFeature & {
     refName?: string
@@ -34,7 +36,9 @@ export function queryGeneFeature({
   const name = String(getFeatureName(feature))
   const refName = json.refName ?? (feature.get('refName') as string)
   const cds = getBestCdsSet(json)
-  const description = statusDescription(status, hitCount)
+  const description = [statusDescription(status, hitCount), statusDetail]
+    .filter(Boolean)
+    .join('; ')
 
   return {
     uniqueId: `${idPrefix}_query`,

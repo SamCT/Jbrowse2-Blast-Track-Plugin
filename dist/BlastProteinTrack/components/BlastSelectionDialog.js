@@ -109,7 +109,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         setProgress(`Finding genes in ${regionLabel(region)}...`);
         const genes = await fetchBlastableGenes({ region, view: model });
         if (!genes.length) {
-            throw new Error(`No gene, mRNA, or transcript features found in ${regionLabel(region)}`);
+            throw new Error(`No visible gene, mRNA, or transcript features found in ${regionLabel(region)}. Zoom in until the gene track is rendered, then run BLASTP genes in selection again.`);
         }
         const selectedGenes = genes.slice(0, sanitizedMaxGenes);
         if (selectedGenes.length >= highVolumeGeneWarningThreshold) {
@@ -121,7 +121,20 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             const name = String(getFeatureName(feature));
             const idPrefix = sanitizeTrackId(`gene_${index + 1}_${name}`);
             setProgress(`Translating gene ${index + 1}/${selectedGenes.length}: ${name}`);
-            const sequence = cleanProteinSequence((await getProteinSequence({ feature, view: model })) ?? '');
+            let sequence = '';
+            try {
+                sequence = cleanProteinSequence((await getProteinSequence({ feature, view: model })) ?? '');
+            }
+            catch (e) {
+                noSequenceFeatures.push(queryGeneFeature({
+                    feature,
+                    hitCount: 0,
+                    idPrefix,
+                    status: 'no_sequence',
+                    statusDetail: `sequence fetch failed: ${errorMessage(e)}`,
+                }));
+                continue;
+            }
             if (sequence) {
                 queries.push({
                     feature,
@@ -343,4 +356,7 @@ function normalizeReportId(value) {
 }
 function wrapSequence(sequence) {
     return sequence.match(/.{1,60}/g)?.join('\n') ?? sequence;
+}
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
 }

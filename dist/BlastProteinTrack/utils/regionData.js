@@ -24,32 +24,7 @@ export async function fetchRegionSequence({ region, view, }) {
         .join('');
 }
 export async function fetchBlastableGenes({ region, view, }) {
-    const renderedGenes = getRenderedBlastableGenes({ region, view });
-    if (renderedGenes.length) {
-        return renderedGenes;
-    }
-    const session = getSession(view);
-    const trackConfs = getTrackConfs(session);
-    const featuresById = new Map();
-    for (const trackConf of trackConfs) {
-        if (!isCandidateFeatureTrack(trackConf, region.assemblyName)) {
-            continue;
-        }
-        const adapterConfig = readConfObject(trackConf, 'adapter');
-        const sessionId = `blast-track-region-features-${readConfObject(trackConf, 'trackId')}`;
-        const features = (await session.rpcManager.call(sessionId, 'CoreGetFeatures', {
-            adapterConfig,
-            sessionId,
-            regions: [region],
-        }));
-        for (const feature of features) {
-            if (!isBlastableGeneFeature(feature) || !overlapsRegion(feature, region)) {
-                continue;
-            }
-            featuresById.set(featureKey(feature), feature);
-        }
-    }
-    return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
+    return getRenderedBlastableGenes({ region, view });
 }
 function getRenderedBlastableGenes({ region, view, }) {
     const maybeView = view;
@@ -75,20 +50,6 @@ function getRenderedBlastableGenes({ region, view, }) {
     }
     return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
 }
-function getTrackConfs(session) {
-    const maybeSession = session;
-    const assemblies = (maybeSession.jbrowse?.assemblies ??
-        []);
-    const temporaryAssemblies = (maybeSession.temporaryAssemblies ??
-        []);
-    return [
-        ...(maybeSession.jbrowse?.tracks ?? []),
-        ...(maybeSession.sessionTracks ?? []),
-        ...assemblies.flatMap(assembly => assembly.sequence ?? []),
-        ...temporaryAssemblies.flatMap(assembly => assembly.sequence ?? []),
-        ...(maybeSession.connectionInstances ?? []).flatMap(connection => connection.tracks ?? []),
-    ];
-}
 function isRenderedCandidateFeatureTrack(track, assemblyName) {
     if (track.type !== 'FeatureTrack' || !track.configuration) {
         return false;
@@ -102,21 +63,6 @@ function isRenderedCandidateFeatureTrack(track, assemblyName) {
 }
 export function regionLabel(region) {
     return `${region.refName}:${region.start + 1}-${region.end}`;
-}
-function isCandidateFeatureTrack(trackConf, assemblyName) {
-    if (readConfObject(trackConf, 'type') !== 'FeatureTrack') {
-        return false;
-    }
-    const adapterConfig = readConfObject(trackConf, 'adapter');
-    if (!adapterConfig || adapterConfig.type === 'FromConfigAdapter') {
-        return false;
-    }
-    const category = readConfObject(trackConf, 'category');
-    if (Array.isArray(category) && category.includes('BLAST')) {
-        return false;
-    }
-    const assemblyNames = readConfObject(trackConf, 'assemblyNames');
-    return !assemblyNames?.length || assemblyNames.includes(assemblyName);
 }
 function isBlastableGeneFeature(feature) {
     return ['gene', 'mRNA', 'transcript'].includes(feature.get('type'));

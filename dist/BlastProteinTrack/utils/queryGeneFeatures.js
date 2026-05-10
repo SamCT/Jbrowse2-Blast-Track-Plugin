@@ -1,11 +1,13 @@
 import { getFeatureName } from './featureSequence';
 import { getBestCdsSet } from './proteinFromCds';
-export function queryGeneFeature({ feature, hitCount, idPrefix, reportMatchedBy, reportQueryId, reportQueryTitle, status, }) {
+export function queryGeneFeature({ feature, hitCount, idPrefix, reportMatchedBy, reportQueryId, reportQueryTitle, status, statusDetail, }) {
     const json = feature.toJSON();
     const name = String(getFeatureName(feature));
     const refName = json.refName ?? feature.get('refName');
     const cds = getBestCdsSet(json);
-    const description = statusDescription(status, hitCount);
+    const description = [statusDescription(status, hitCount), statusDetail]
+        .filter(Boolean)
+        .join('; ');
     return {
         uniqueId: `${idPrefix}_query`,
         refName,
