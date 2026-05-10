@@ -1,0 +1,18 @@
+node_modules/
+.tools/
+env.sh
+*.tgz
+
+# Local JBrowse test instance and user data
+jbrowse-local/
+
+# Logs and local runtime state
+*.log
+*.pid
+.DS_Store
+Thumbs.db
+
+# Coverage/build cache
+coverage/
+.nyc_output/
+.eslintcache

@@ -1,0 +1,573 @@
+import { getFeatureName } from './featureSequence'
+import { getBestCdsSet } from './proteinFromCds'
+
+import type { BlastHit, BlastHsp } from './types'
+import type { JsonFeature } from './proteinFromCds'
+import type { Feature } from '@jbrowse/core/util'
+
+interface FromConfigFeature {
+  uniqueId: string
+  refName: string
+  start: number
+  end: number
+  type: string
+  name: string
+  score?: number
+  strand?: number
+  [key: string]: unknown
+}
+
+interface CodingSegment {
+  start: number
+  end: number
+  codingStart: number
+  codingEnd: number
+  strand: number
+}
+
+export function featuresFromBlastHits({
+  hspLimit,
+  hits,
+  idPrefix,
+  queryFeature,
+  queryProteinLength,
+  hitLimit,
+  showMismatchMarkers,
+}: {
+  hspLimit: number
+  hits: BlastHit[]
+  idPrefix?: string
+  queryFeature: Feature
+  queryProteinLength: number
+  hitLimit: number
+  showMismatchMarkers: boolean
+}) {
+  const refName = queryFeature.get('refName') as string
+  const queryStart = queryFeature.get('start') as number
+  const queryEnd = queryFeature.get('end') as number
+  const queryStrand = (queryFeature.get('strand') as number | undefined) ?? 1
+  const queryLength = Math.max(1, queryEnd - queryStart)
+  const codingSegments = getCodingSegments(queryFeature)
+
+  return bestHits(hits, hitLimit).flatMap((hit, hitIndex) => {
+    const description = hit.description[0] ?? {}
+    const allHsps = hit.hsps.filter(hasQueryRange)
+    const hsps = limitHsps(allHsps, hspLimit)
+    if (!hsps.length) {
+      return []
+    }
+
+    const hspBlocks = hsps.flatMap((hsp, hspIndex) =>
+      hspToCdsBlocks({
+        description,
+        hitIndex,
+        hsp,
+        hspIndex,
+        idPrefix,
+        refName,
+        queryEnd,
+        queryLength,
+        queryProteinLength,
+        queryStart,
+        queryStrand,
+        codingSegments,
+      }),
+    )
+    const mismatchMarkers = showMismatchMarkers
+      ? hsps.flatMap((hsp, hspIndex) =>
+          hspMismatchMarkers({
+            description,
+            hitIndex,
+            hsp,
+            hspIndex,
+            idPrefix,
+            refName,
+            queryEnd,
+            queryLength,
+            queryProteinLength,
+            queryStart,
+            queryStrand,
+            codingSegments,
+          }),
+        )
+      : []
+    const blocks = [...hspBlocks, ...mismatchMarkers]
+    if (!hspBlocks.length) {
+      return []
+    }
+    const start = Math.min(...hspBlocks.map(block => block.start))
+    const end = Math.max(...hspBlocks.map(block => block.end))
+    const label = hitLabel(description, hitIndex)
+    const title = description.title?.trim()
+    const totalAlignLength = sum(hsps, 'align_len')
+    const totalIdentical = sum(hsps, 'identity')
+    const totalPositive = sum(hsps, 'positive')
+    const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
+    const bestHsp = [...hsps].sort(compareHsps)[0]
+    const subjectRange = hspSubjectRange(hsps)
+
+    return [
+      {
+        uniqueId: hitId(description, hitIndex, idPrefix),
+        refName,
+        start,
+        end,
+        type: 'gene',
+        name: label,
+        id: label,
+        gene_id: label,
+        hitRank: hitIndex + 1,
+        strand: queryStrand,
+        score: bestBitScore(hsps),
+        source: 'NCBI BLASTP',
+        blastProgram: 'blastp',
+        coordinateProjection: codingSegments.length
+          ? 'Protein HSP query coordinates projected onto CDS exons'
+          : 'Protein HSP query coordinates projected over feature span; no CDS subfeatures found',
+        queryFeature: getFeatureName(queryFeature),
+        queryProteinLengthAa: queryProteinLength,
+        accession: description.accession,
+        ncbiId: description.id,
+        description: title,
+        note: title,
+        scientificName: description.sciname,
+        taxid: description.taxid,
+        identity: weightedPercent(hsps, 'identity'),
+        percentIdentity: weightedPercent(hsps, 'identity'),
+        positives: weightedPercent(hsps, 'positive'),
+        percentPositives: weightedPercent(hsps, 'positive'),
+        mismatches: totalMismatches(hsps),
+        gaps: sum(hsps, 'gaps'),
+        evalue: bestEvalue(hsps),
+        bitScore: bestBitScore(hsps),
+        totalAlignedAminoAcids: totalAlignLength,
+        identicalAminoAcids: totalIdentical,
+        positiveAminoAcids: totalPositive,
+        queryCoverage,
+        hspCount: hsps.length,
+        bestHspIdentity: bestHsp ? hspStats(bestHsp).identity : undefined,
+        bestHspEvalue: bestHsp?.evalue,
+        bestHspBitScore: bestHsp?.bit_score,
+        bestHspQueryRange: bestHsp
+          ? `${bestHsp.query_from}-${bestHsp.query_to}`
+          : undefined,
+        subjectFrom: subjectRange?.from,
+        subjectTo: subjectRange?.to,
+        subjectProteinLengthAa: hit.len,
+        hitLength: hit.len,
+        maxHspsPerHit: hspLimit,
+        availableHspCount: allHsps.length,
+        mismatchMarkersShown: showMismatchMarkers,
+        subfeatures: blocks,
+      } satisfies FromConfigFeature,
+    ]
+  })
+}
+
+function hasQueryRange(hsp: BlastHsp): hsp is BlastHsp &
+  Required<Pick<BlastHsp, 'query_from' | 'query_to'>> {
+  return hsp.query_from !== undefined && hsp.query_to !== undefined
+}
+
+function proteinPositionToGenomeOffset({
+  proteinPosition,
+  queryProteinLength,
+  queryLength,
+}: {
+  proteinPosition: number
+  queryProteinLength: number
+  queryLength: number
+}) {
+  return Math.round(((proteinPosition - 1) / queryProteinLength) * queryLength)
+}
+
+function getCodingSegments(feature: Feature): CodingSegment[] {
+  const json = feature.toJSON() as JsonFeature
+  const strand = json.strand ?? 1
+  const cds = getBestCdsSet(json)
+  const orderedCds = [...cds].sort((a, b) =>
+    strand === -1 ? b.start - a.start : a.start - b.start,
+  )
+  let offset = 0
+  return orderedCds.map(sub => {
+    const length = sub.end - sub.start
+    const segment = {
+      start: sub.start,
+      end: sub.end,
+      codingStart: offset,
+      codingEnd: offset + length,
+      strand,
+    }
+    offset += length
+    return segment
+  })
+}
+
+function hspToCdsBlocks({
+  description,
+  hitIndex,
+  hsp,
+  hspIndex,
+  idPrefix,
+  refName,
+  queryEnd,
+  queryLength,
+  queryProteinLength,
+  queryStart,
+  queryStrand,
+  codingSegments,
+}: {
+  description: { accession?: string; id?: string }
+  hitIndex: number
+  hsp: BlastHsp & Required<Pick<BlastHsp, 'query_from' | 'query_to'>>
+  hspIndex: number
+  idPrefix?: string
+  refName: string
+  queryEnd: number
+  queryLength: number
+  queryProteinLength: number
+  queryStart: number
+  queryStrand: number
+  codingSegments: CodingSegment[]
+}) {
+  const codingStart = (Math.min(hsp.query_from, hsp.query_to) - 1) * 3
+  const codingEnd = Math.max(hsp.query_from, hsp.query_to) * 3
+  const stats = hspStats(hsp)
+  const ranges = codingSegments.length
+    ? codingIntervalToGenomeRanges(codingStart, codingEnd, codingSegments)
+    : wholeFeatureProteinRanges({
+        codingStart,
+        codingEnd,
+        queryEnd,
+        queryLength,
+        queryProteinLength,
+        queryStart,
+        queryStrand,
+      })
+
+  return ranges.map((range, partIndex) => ({
+    uniqueId: `${hitId(description, hitIndex, idPrefix)}_hsp_${hspIndex + 1}_part_${
+      partIndex + 1
+    }`,
+    refName,
+    type: 'CDS',
+    start: range.start,
+    end: range.end,
+    name:
+      ranges.length === 1
+        ? `HSP ${hspIndex + 1}`
+        : `HSP ${hspIndex + 1}.${partIndex + 1}`,
+    strand: queryStrand,
+    source: 'NCBI BLASTP',
+    hspNumber: hspIndex + 1,
+    hspPart: partIndex + 1,
+    queryAaRange: `${Math.min(hsp.query_from, hsp.query_to)}-${Math.max(
+      hsp.query_from,
+      hsp.query_to,
+    )}`,
+    coordinateProjection: codingSegments.length ? 'CDS exon segment' : 'feature span',
+    ...stats,
+  }))
+}
+
+function codingIntervalToGenomeRanges(
+  codingStart: number,
+  codingEnd: number,
+  codingSegments: CodingSegment[],
+) {
+  return codingSegments.flatMap(segment => {
+    const overlapStart = Math.max(codingStart, segment.codingStart)
+    const overlapEnd = Math.min(codingEnd, segment.codingEnd)
+    if (overlapStart >= overlapEnd) {
+      return []
+    }
+
+    const localStart = overlapStart - segment.codingStart
+    const localEnd = overlapEnd - segment.codingStart
+    return [
+      segment.strand === -1
+        ? {
+            start: segment.end - localEnd,
+            end: segment.end - localStart,
+          }
+        : {
+            start: segment.start + localStart,
+            end: segment.start + localEnd,
+          },
+    ]
+  })
+}
+
+function wholeFeatureProteinRanges({
+  codingStart,
+  codingEnd,
+  queryEnd,
+  queryLength,
+  queryProteinLength,
+  queryStart,
+  queryStrand,
+}: {
+  codingStart: number
+  codingEnd: number
+  queryEnd: number
+  queryLength: number
+  queryProteinLength: number
+  queryStart: number
+  queryStrand: number
+}) {
+  const start = proteinPositionToGenomeOffset({
+    proteinPosition: codingStart / 3 + 1,
+    queryProteinLength,
+    queryLength,
+  })
+  const end = proteinPositionToGenomeOffset({
+    proteinPosition: codingEnd / 3 + 1,
+    queryProteinLength,
+    queryLength,
+  })
+  return [
+    queryStrand >= 0
+      ? { start: queryStart + start, end: queryStart + end }
+      : { start: queryEnd - end, end: queryEnd - start },
+  ]
+}
+
+function hspMismatchMarkers(args: Parameters<typeof hspToCdsBlocks>[0]) {
+  const { hsp, codingSegments } = args
+  const mismatches = hspMismatchPositions(hsp)
+  if (!mismatches.length || !codingSegments.length) {
+    return []
+  }
+
+  return mismatches.flatMap((mismatch, mismatchIndex) => {
+    const codingStart = (mismatch.queryAa - 1) * 3
+    const codingEnd = mismatch.queryAa * 3
+    const ranges = codingIntervalToGenomeRanges(
+      codingStart,
+      codingEnd,
+      codingSegments,
+    )
+    return ranges.map((range, partIndex) => ({
+      uniqueId: `${hitId(args.description, args.hitIndex, args.idPrefix)}_hsp_${
+        args.hspIndex + 1
+      }_mismatch_${mismatchIndex + 1}_${partIndex + 1}`,
+      refName: args.refName,
+      type: mismatch.kind,
+      start: range.start,
+      end: range.end,
+      name:
+        mismatch.kind === 'gap'
+          ? `Gap Q${mismatch.queryAa}`
+          : `Mismatch Q${mismatch.queryAa}`,
+      strand: args.queryStrand,
+      source: 'NCBI BLASTP',
+      hspNumber: args.hspIndex + 1,
+      queryAa: mismatch.queryAa,
+      queryResidue: mismatch.queryResidue,
+      subjectResidue: mismatch.subjectResidue,
+      description:
+        mismatch.kind === 'gap'
+          ? `gap at query amino acid ${mismatch.queryAa}`
+          : `${mismatch.queryResidue}->${mismatch.subjectResidue} at query amino acid ${mismatch.queryAa}`,
+    }))
+  })
+}
+
+function hspMismatchPositions(
+  hsp: BlastHsp & Required<Pick<BlastHsp, 'query_from' | 'query_to'>>,
+) {
+  const { qseq, hseq } = hsp
+  if (!qseq || !hseq) {
+    return []
+  }
+
+  const direction = hsp.query_to >= hsp.query_from ? 1 : -1
+  let queryPos = hsp.query_from
+  const mismatches: {
+    kind: 'gap' | 'mismatch'
+    queryAa: number
+    queryResidue?: string
+    subjectResidue?: string
+  }[] = []
+
+  for (let i = 0; i < qseq.length; i++) {
+    const queryResidue = qseq[i]
+    const subjectResidue = hseq[i]
+    if (queryResidue === '-') {
+      continue
+    }
+
+    if (subjectResidue === '-') {
+      mismatches.push({
+        kind: 'gap',
+        queryAa: queryPos,
+        queryResidue,
+        subjectResidue,
+      })
+    } else if (
+      queryResidue &&
+      subjectResidue &&
+      queryResidue.toUpperCase() !== subjectResidue.toUpperCase()
+    ) {
+      mismatches.push({
+        kind: 'mismatch',
+        queryAa: queryPos,
+        queryResidue,
+        subjectResidue,
+      })
+    }
+
+    queryPos += direction
+  }
+
+  return mismatches
+}
+
+function hitId(
+  description: { accession?: string; id?: string },
+  index: number,
+  prefix?: string,
+) {
+  const id = (
+    description.accession ??
+    description.id ??
+    `blast_hit_${index + 1}`
+  ).replaceAll(/[^A-Za-z0-9_.-]/g, '_')
+  return prefix ? `${prefix}_${id}` : id
+}
+
+function hitLabel(
+  description: { accession?: string; id?: string; title?: string },
+  index: number,
+) {
+  return description.accession ?? description.id ?? `BLAST hit ${index + 1}`
+}
+
+function hspStats(hsp: BlastHsp) {
+  const identity = percent(hsp.identity, hsp.align_len)
+  const positives = percent(hsp.positive, hsp.align_len)
+  return {
+    evalue: hsp.evalue,
+    bitScore: hsp.bit_score,
+    score: hsp.score,
+    identity,
+    percentIdentity: identity,
+    positives,
+    percentPositives: positives,
+    mismatches:
+      hsp.align_len === undefined || hsp.identity === undefined
+        ? undefined
+        : hsp.align_len - hsp.identity - (hsp.gaps ?? 0),
+    gaps: hsp.gaps,
+    identicalAminoAcids: hsp.identity,
+    positiveAminoAcids: hsp.positive,
+    alignmentLengthAa: hsp.align_len,
+    alignLength: hsp.align_len,
+    queryFrom: hsp.query_from,
+    queryTo: hsp.query_to,
+    subjectFrom: hsp.hit_from,
+    subjectTo: hsp.hit_to,
+    mismatchQueryPositions: hsp.query_from
+      ? hspMismatchPositions(
+          hsp as BlastHsp & Required<Pick<BlastHsp, 'query_from' | 'query_to'>>,
+        )
+          .map(pos => pos.queryAa)
+          .join(', ')
+      : undefined,
+    description: `identity ${identity}%, e-value ${hsp.evalue ?? 'n/a'}`,
+  }
+}
+
+function bestHits(hits: BlastHit[], hitLimit: number) {
+  return [...hits]
+    .filter(hit => hit.hsps.some(hasQueryRange))
+    .sort(compareHits)
+    .slice(0, hitLimit)
+}
+
+function limitHsps(
+  hsps: (BlastHsp & Required<Pick<BlastHsp, 'query_from' | 'query_to'>>)[],
+  hspLimit: number,
+) {
+  return [...hsps].sort(compareHsps).slice(0, hspLimit)
+}
+
+function compareHits(a: BlastHit, b: BlastHit) {
+  const aHsps = a.hsps.filter(hasQueryRange)
+  const bHsps = b.hsps.filter(hasQueryRange)
+  const evalueDiff = bestEvalue(aHsps) - bestEvalue(bHsps)
+  if (evalueDiff) {
+    return evalueDiff
+  }
+  return bestBitScore(bHsps) - bestBitScore(aHsps)
+}
+
+function compareHsps(a: BlastHsp, b: BlastHsp) {
+  const evalueDiff =
+    (a.evalue ?? Number.POSITIVE_INFINITY) -
+    (b.evalue ?? Number.POSITIVE_INFINITY)
+  if (evalueDiff) {
+    return evalueDiff
+  }
+  return (b.bit_score ?? 0) - (a.bit_score ?? 0)
+}
+
+function bestEvalue(hsps: BlastHsp[]) {
+  return Math.min(...hsps.map(hsp => hsp.evalue ?? Number.POSITIVE_INFINITY))
+}
+
+function bestBitScore(hsps: BlastHsp[]) {
+  return Math.max(...hsps.map(hsp => hsp.bit_score ?? 0))
+}
+
+function weightedPercent(hsps: BlastHsp[], field: 'identity' | 'positive') {
+  const numerator = sum(hsps, field)
+  const denominator = sum(hsps, 'align_len')
+  return percent(numerator, denominator)
+}
+
+function queryCoveragePct(hsps: BlastHsp[], queryProteinLength: number) {
+  const covered = new Set<number>()
+  for (const hsp of hsps) {
+    if (hsp.query_from === undefined || hsp.query_to === undefined) {
+      continue
+    }
+    const start = Math.min(hsp.query_from, hsp.query_to)
+    const end = Math.max(hsp.query_from, hsp.query_to)
+    for (let i = start; i <= end; i++) {
+      covered.add(i)
+    }
+  }
+  return percent(covered.size, queryProteinLength)
+}
+
+function hspSubjectRange(hsps: BlastHsp[]) {
+  const coords = hsps.flatMap(hsp =>
+    hsp.hit_from === undefined || hsp.hit_to === undefined
+      ? []
+      : [hsp.hit_from, hsp.hit_to],
+  )
+  return coords.length
+    ? { from: Math.min(...coords), to: Math.max(...coords) }
+    : undefined
+}
+
+function totalMismatches(hsps: BlastHsp[]) {
+  return hsps.reduce((total, hsp) => {
+    if (hsp.align_len === undefined || hsp.identity === undefined) {
+      return total
+    }
+    return total + hsp.align_len - hsp.identity - (hsp.gaps ?? 0)
+  }, 0)
+}
+
+function sum(hsps: BlastHsp[], field: keyof BlastHsp) {
+  return hsps.reduce((total, hsp) => {
+    const value = hsp[field]
+    return typeof value === 'number' ? total + value : total
+  }, 0)
+}
+
+function percent(numerator = 0, denominator = 0) {
+  return denominator ? Number(((numerator / denominator) * 100).toFixed(2)) : 0
+}
