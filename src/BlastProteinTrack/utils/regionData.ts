@@ -53,6 +53,11 @@ export async function fetchBlastableGenes({
   region: SelectedRegion
   view: LinearGenomeViewModel
 }) {
+  const renderedGenes = getRenderedBlastableGenes({ region, view })
+  if (renderedGenes.length) {
+    return renderedGenes
+  }
+
   const session = getSession(view) as AbstractSessionModel
   const trackConfs = getTrackConfs(session)
   const featuresById = new Map<string, Feature>()
@@ -86,6 +91,55 @@ export async function fetchBlastableGenes({
   )
 }
 
+function getRenderedBlastableGenes({
+  region,
+  view,
+}: {
+  region: SelectedRegion
+  view: LinearGenomeViewModel
+}) {
+  const maybeView = view as LinearGenomeViewModel & {
+    tracks?: {
+      type?: string
+      configuration?: AnyConfigurationModel
+      displays?: {
+        features?: {
+          values?: () => Iterable<Feature | undefined>
+        }
+      }[]
+    }[]
+  }
+  const featuresById = new Map<string, Feature>()
+
+  for (const track of maybeView.tracks ?? []) {
+    if (!isRenderedCandidateFeatureTrack(track, region.assemblyName)) {
+      continue
+    }
+
+    for (const display of track.displays ?? []) {
+      const values = display.features?.values
+      if (typeof values !== 'function') {
+        continue
+      }
+
+      for (const feature of values.call(display.features)) {
+        if (
+          !feature ||
+          !isBlastableGeneFeature(feature) ||
+          !overlapsRegion(feature, region)
+        ) {
+          continue
+        }
+        featuresById.set(featureKey(feature), feature)
+      }
+    }
+  }
+
+  return [...featuresById.values()].sort(
+    (a, b) => (a.get('start') as number) - (b.get('start') as number),
+  )
+}
+
 function getTrackConfs(session: AbstractSessionModel) {
   const maybeSession = session as AbstractSessionModel & {
     jbrowse?: {
@@ -111,6 +165,25 @@ function getTrackConfs(session: AbstractSessionModel) {
       connection => connection.tracks ?? [],
     ),
   ]
+}
+
+function isRenderedCandidateFeatureTrack(
+  track: { type?: string; configuration?: AnyConfigurationModel },
+  assemblyName: string,
+) {
+  if (track.type !== 'FeatureTrack' || !track.configuration) {
+    return false
+  }
+
+  const category = readOptionalConf(track.configuration, 'category')
+  if (Array.isArray(category) && category.includes('BLAST')) {
+    return false
+  }
+
+  const assemblyNames = readOptionalConf(track.configuration, 'assemblyNames') as
+    | string[]
+    | undefined
+  return !assemblyNames?.length || assemblyNames.includes(assemblyName)
 }
 
 export function regionLabel(region: SelectedRegion) {
@@ -159,4 +232,12 @@ function featureKey(feature: Feature) {
     feature.get('start'),
     feature.get('end'),
   ].join(':')
+}
+
+function readOptionalConf(config: AnyConfigurationModel, path: string) {
+  try {
+    return readConfObject(config, path)
+  } catch {
+    return undefined
+  }
 }

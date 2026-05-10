@@ -24,6 +24,10 @@ export async function fetchRegionSequence({ region, view, }) {
         .join('');
 }
 export async function fetchBlastableGenes({ region, view, }) {
+    const renderedGenes = getRenderedBlastableGenes({ region, view });
+    if (renderedGenes.length) {
+        return renderedGenes;
+    }
     const session = getSession(view);
     const trackConfs = getTrackConfs(session);
     const featuresById = new Map();
@@ -47,6 +51,30 @@ export async function fetchBlastableGenes({ region, view, }) {
     }
     return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
 }
+function getRenderedBlastableGenes({ region, view, }) {
+    const maybeView = view;
+    const featuresById = new Map();
+    for (const track of maybeView.tracks ?? []) {
+        if (!isRenderedCandidateFeatureTrack(track, region.assemblyName)) {
+            continue;
+        }
+        for (const display of track.displays ?? []) {
+            const values = display.features?.values;
+            if (typeof values !== 'function') {
+                continue;
+            }
+            for (const feature of values.call(display.features)) {
+                if (!feature ||
+                    !isBlastableGeneFeature(feature) ||
+                    !overlapsRegion(feature, region)) {
+                    continue;
+                }
+                featuresById.set(featureKey(feature), feature);
+            }
+        }
+    }
+    return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
+}
 function getTrackConfs(session) {
     const maybeSession = session;
     const assemblies = (maybeSession.jbrowse?.assemblies ??
@@ -60,6 +88,17 @@ function getTrackConfs(session) {
         ...temporaryAssemblies.flatMap(assembly => assembly.sequence ?? []),
         ...(maybeSession.connectionInstances ?? []).flatMap(connection => connection.tracks ?? []),
     ];
+}
+function isRenderedCandidateFeatureTrack(track, assemblyName) {
+    if (track.type !== 'FeatureTrack' || !track.configuration) {
+        return false;
+    }
+    const category = readOptionalConf(track.configuration, 'category');
+    if (Array.isArray(category) && category.includes('BLAST')) {
+        return false;
+    }
+    const assemblyNames = readOptionalConf(track.configuration, 'assemblyNames');
+    return !assemblyNames?.length || assemblyNames.includes(assemblyName);
 }
 export function regionLabel(region) {
     return `${region.refName}:${region.start + 1}-${region.end}`;
@@ -95,4 +134,12 @@ function featureKey(feature) {
         feature.get('start'),
         feature.get('end'),
     ].join(':');
+}
+function readOptionalConf(config, path) {
+    try {
+        return readConfObject(config, path);
+    }
+    catch {
+        return undefined;
+    }
 }
