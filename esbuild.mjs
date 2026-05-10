@@ -25,7 +25,7 @@ function createGlobalMap(jbrowseGlobals) {
 const buildConfig = {
   entryPoints: ['src/index.ts'],
   bundle: true,
-  globalName: 'JBrowsePluginBlastTrackPlugin',
+  globalName: 'JBrowsePluginBlastTrack',
   plugins: [globalExternals(createGlobalMap(JBrowseReExports))],
   ...(watch
     ? { outfile: 'dist/out.js' }
