@@ -1,7 +1,7 @@
 const blastToolName = 'BlastTrack';
 const submitIntervalMs = 10_000;
-const minimumInitialPollSeconds = 10;
-const waitingPollIntervalSeconds = 60;
+const initialPollSeconds = 30;
+const waitingPollIntervalSeconds = 30;
 let submitQueue = Promise.resolve();
 let lastSubmitStartedAt = 0;
 export async function queryBlast({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
@@ -94,7 +94,7 @@ async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEma
     });
 }
 async function waitForBlastResults({ rid, baseUrl, contactEmail, onProgress, }) {
-    let nextPollSeconds = minimumInitialPollSeconds;
+    let nextPollSeconds = initialPollSeconds;
     while (true) {
         for (let i = nextPollSeconds; i > 0; i--) {
             onProgress(`Waiting for NCBI BLAST RID ${rid}. Checking again in ${i}s.`);

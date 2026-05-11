@@ -2,8 +2,8 @@ import type { BlastHit, BlastResults } from './types'
 
 const blastToolName = 'BlastTrack'
 const submitIntervalMs = 10_000
-const minimumInitialPollSeconds = 10
-const waitingPollIntervalSeconds = 60
+const initialPollSeconds = 30
+const waitingPollIntervalSeconds = 30
 
 let submitQueue = Promise.resolve()
 let lastSubmitStartedAt = 0
@@ -168,7 +168,7 @@ async function waitForBlastResults({
   contactEmail?: string
   onProgress: (arg: string) => void
 }) {
-  let nextPollSeconds = minimumInitialPollSeconds
+  let nextPollSeconds = initialPollSeconds
 
   while (true) {
     for (let i = nextPollSeconds; i > 0; i--) {
