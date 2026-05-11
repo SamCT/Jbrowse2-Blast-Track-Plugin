@@ -342,10 +342,10 @@ function selectDisplayedHits(rankedHits, hitLimit) {
     const selected = [];
     const selectedHits = new Set();
     const selectedProductKeys = new Set();
-    function add(hit) {
+    function add(hit, allowDuplicateProduct = false) {
         if (!hit ||
             selectedHits.has(hit.hit) ||
-            selectedProductKeys.has(hit.stats.productKey) ||
+            (!allowDuplicateProduct && selectedProductKeys.has(hit.stats.productKey)) ||
             selected.length >= hitLimit) {
             return;
         }
@@ -359,6 +359,9 @@ function selectDisplayedHits(rankedHits, hitLimit) {
     }
     for (const rankedHit of rankedHits) {
         add(rankedHit);
+    }
+    for (const rankedHit of rankedHits) {
+        add(rankedHit, true);
     }
     return selected;
 }

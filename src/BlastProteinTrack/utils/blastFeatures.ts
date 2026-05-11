@@ -528,11 +528,11 @@ function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
   const selectedHits = new Set<BlastHit>()
   const selectedProductKeys = new Set<string>()
 
-  function add(hit?: RankedHit) {
+  function add(hit?: RankedHit, allowDuplicateProduct = false) {
     if (
       !hit ||
       selectedHits.has(hit.hit) ||
-      selectedProductKeys.has(hit.stats.productKey) ||
+      (!allowDuplicateProduct && selectedProductKeys.has(hit.stats.productKey)) ||
       selected.length >= hitLimit
     ) {
       return
@@ -548,6 +548,9 @@ function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
   }
   for (const rankedHit of rankedHits) {
     add(rankedHit)
+  }
+  for (const rankedHit of rankedHits) {
+    add(rankedHit, true)
   }
 
   return selected

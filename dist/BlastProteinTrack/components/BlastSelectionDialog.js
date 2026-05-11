@@ -297,7 +297,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'
-                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Max genes", value: maxGenes, onChange: event => {
+                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Max genes to BLAST", value: maxGenes, onChange: event => {
                                     setMaxGenes(Number(event.target.value));
                                 }, sx: { ml: 2, width: 120 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
                                     setBlastDatabase(event.target.value);

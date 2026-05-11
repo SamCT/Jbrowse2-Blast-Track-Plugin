@@ -444,7 +444,7 @@ export default function BlastSelectionDialog({
             <TextField
               margin="normal"
               type="number"
-              label="Max genes"
+              label="Max genes to BLAST"
               value={maxGenes}
               onChange={event => {
                 setMaxGenes(Number(event.target.value))
