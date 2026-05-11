@@ -22,6 +22,7 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     score: number;
     source: string;
     blastProgram: string;
+    blastCandidateClass: string;
     coordinateProjection: string;
     queryFeature: any;
     queryProteinLengthAa: number;

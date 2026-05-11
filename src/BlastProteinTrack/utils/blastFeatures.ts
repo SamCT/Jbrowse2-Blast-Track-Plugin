@@ -143,6 +143,7 @@ export function featuresFromBlastHits({
         score: bestBitScore(hsps),
         source: 'NCBI BLASTP',
         blastProgram: 'blastp',
+        blastCandidateClass: candidateClass(rankingStats),
         coordinateProjection: codingSegments.length
           ? 'Protein HSP query coordinates projected onto CDS exons'
           : 'Protein HSP query coordinates projected over feature span; no CDS subfeatures found',
