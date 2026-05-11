@@ -7,8 +7,9 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
     const queryStrand = queryFeature.get('strand') ?? 1;
     const queryLength = Math.max(1, queryEnd - queryStart);
     const codingSegments = getCodingSegments(queryFeature);
-    return bestHits(hits, hitLimit).flatMap((hit, hitIndex) => {
-        const description = hit.description[0] ?? {};
+    return bestHits(hits, hitLimit, queryProteinLength).flatMap((hit, hitIndex) => {
+        const descriptions = hit.description ?? [];
+        const description = displayDescription(descriptions);
         const allHsps = hit.hsps.filter(hasQueryRange);
         const hsps = limitHsps(allHsps, hspLimit);
         if (!hsps.length) {
@@ -107,6 +108,9 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 subjectTo: subjectRange?.to,
                 subjectProteinLengthAa: hit.len,
                 hitLength: hit.len,
+                descriptionMemberCount: descriptions.length,
+                allAccessions: joinedDescriptionField(descriptions, 'accession'),
+                allDescriptions: joinedDescriptionField(descriptions, 'title'),
                 maxHspsPerHit: hspLimit,
                 availableHspCount: allHsps.length,
                 mismatchMarkersShown: showMismatchMarkers,
@@ -319,31 +323,56 @@ function hspStats(hsp) {
         description: `identity ${identity}%, e-value ${hsp.evalue ?? 'n/a'}`,
     };
 }
-function bestHits(hits, hitLimit) {
+function bestHits(hits, hitLimit, queryProteinLength) {
     return [...hits]
         .filter(hit => hit.hsps.some(hasQueryRange))
-        .sort(compareHits)
+        .sort((a, b) => compareHits(a, b, queryProteinLength))
         .slice(0, hitLimit);
 }
 function limitHsps(hsps, hspLimit) {
     return [...hsps].sort(compareHsps).slice(0, hspLimit);
 }
-function compareHits(a, b) {
-    const aHsps = a.hsps.filter(hasQueryRange);
-    const bHsps = b.hsps.filter(hasQueryRange);
-    const evalueDiff = bestEvalue(aHsps) - bestEvalue(bHsps);
+function compareHits(a, b, queryProteinLength) {
+    const aStats = hitRankingStats(a, queryProteinLength);
+    const bStats = hitRankingStats(b, queryProteinLength);
+    const coverageDiff = bStats.queryCoverage - aStats.queryCoverage;
+    if (Math.abs(coverageDiff) >= 5) {
+        return coverageDiff;
+    }
+    const bitScoreDiff = bStats.bitScore - aStats.bitScore;
+    if (bitScoreDiff) {
+        return bitScoreDiff;
+    }
+    const alignedLengthDiff = bStats.alignedLength - aStats.alignedLength;
+    if (alignedLengthDiff) {
+        return alignedLengthDiff;
+    }
+    const informativeDescriptionDiff = Number(bStats.hasInformativeDescription) -
+        Number(aStats.hasInformativeDescription);
+    if (informativeDescriptionDiff) {
+        return informativeDescriptionDiff;
+    }
+    const evalueDiff = aStats.evalue - bStats.evalue;
     if (evalueDiff) {
         return evalueDiff;
     }
-    return bestBitScore(bHsps) - bestBitScore(aHsps);
+    const identityDiff = bStats.identity - aStats.identity;
+    if (identityDiff) {
+        return identityDiff;
+    }
+    return bStats.subjectLength - aStats.subjectLength;
 }
 function compareHsps(a, b) {
-    const evalueDiff = (a.evalue ?? Number.POSITIVE_INFINITY) -
-        (b.evalue ?? Number.POSITIVE_INFINITY);
-    if (evalueDiff) {
-        return evalueDiff;
+    const bitScoreDiff = (b.bit_score ?? 0) - (a.bit_score ?? 0);
+    if (bitScoreDiff) {
+        return bitScoreDiff;
     }
-    return (b.bit_score ?? 0) - (a.bit_score ?? 0);
+    const alignedLengthDiff = (b.align_len ?? 0) - (a.align_len ?? 0);
+    if (alignedLengthDiff) {
+        return alignedLengthDiff;
+    }
+    return ((a.evalue ?? Number.POSITIVE_INFINITY) -
+        (b.evalue ?? Number.POSITIVE_INFINITY));
 }
 function bestEvalue(hsps) {
     return Math.min(...hsps.map(hsp => hsp.evalue ?? Number.POSITIVE_INFINITY));
@@ -351,12 +380,27 @@ function bestEvalue(hsps) {
 function bestBitScore(hsps) {
     return Math.max(...hsps.map(hsp => hsp.bit_score ?? 0));
 }
+function hitRankingStats(hit, queryProteinLength) {
+    const hsps = hit.hsps.filter(hasQueryRange);
+    return {
+        alignedLength: queryCoveredLength(hsps),
+        bitScore: bestBitScore(hsps),
+        evalue: bestEvalue(hsps),
+        hasInformativeDescription: hit.description?.some(isInformativeDescription) ?? false,
+        identity: weightedPercent(hsps, 'identity'),
+        queryCoverage: queryCoveragePct(hsps, queryProteinLength),
+        subjectLength: hit.len ?? 0,
+    };
+}
 function weightedPercent(hsps, field) {
     const numerator = sum(hsps, field);
     const denominator = sum(hsps, 'align_len');
     return percent(numerator, denominator);
 }
 function queryCoveragePct(hsps, queryProteinLength) {
+    return percent(queryCoveredLength(hsps), queryProteinLength);
+}
+function queryCoveredLength(hsps) {
     const covered = new Set();
     for (const hsp of hsps) {
         if (hsp.query_from === undefined || hsp.query_to === undefined) {
@@ -368,7 +412,7 @@ function queryCoveragePct(hsps, queryProteinLength) {
             covered.add(i);
         }
     }
-    return percent(covered.size, queryProteinLength);
+    return covered.size;
 }
 function hspSubjectRange(hsps) {
     const coords = hsps.flatMap(hsp => hsp.hit_from === undefined || hsp.hit_to === undefined
@@ -394,4 +438,20 @@ function sum(hsps, field) {
 }
 function percent(numerator = 0, denominator = 0) {
     return denominator ? Number(((numerator / denominator) * 100).toFixed(2)) : 0;
+}
+function displayDescription(descriptions) {
+    return descriptions.find(isInformativeDescription) ?? descriptions[0] ?? {};
+}
+function isInformativeDescription(description) {
+    const title = description.title?.trim();
+    return Boolean(title && !isGenericProteinTitle(title));
+}
+function isGenericProteinTitle(title) {
+    return /\b(hypothetical|uncharacteri[sz]ed|unnamed protein product|predicted protein|unknown function)\b/i.test(title);
+}
+function joinedDescriptionField(descriptions, field) {
+    const values = descriptions
+        .map(description => description[field]?.trim())
+        .filter((value) => Boolean(value));
+    return values.length ? values.join(' | ') : undefined;
 }

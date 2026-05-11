@@ -49,6 +49,9 @@ export declare function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPre
     subjectTo: number | undefined;
     subjectLengthBp: number | undefined;
     hitLength: number | undefined;
+    descriptionMemberCount: number;
+    allAccessions: string | undefined;
+    allDescriptions: string | undefined;
     maxHspsPerHit: number;
     availableHspCount: number;
     mismatchMarkersShown: boolean;

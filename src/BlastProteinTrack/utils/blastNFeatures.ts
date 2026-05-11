@@ -1,6 +1,6 @@
 import type { FromConfigFeature } from './blastTrackConfig'
 import type { SelectedRegion } from './regionData'
-import type { BlastHit, BlastHsp } from './types'
+import type { BlastHit, BlastHitDescription, BlastHsp } from './types'
 
 export function featuresFromBlastNHits({
   hitLimit,
@@ -19,8 +19,9 @@ export function featuresFromBlastNHits({
   region: SelectedRegion
   showMismatchMarkers: boolean
 }) {
-  return bestHits(hits, hitLimit).flatMap((hit, hitIndex) => {
-    const description = hit.description[0] ?? {}
+  return bestHits(hits, hitLimit, queryLength).flatMap((hit, hitIndex) => {
+    const descriptions = hit.description ?? []
+    const description = displayDescription(descriptions)
     const allHsps = hit.hsps.filter(hasQueryRange)
     const hsps = limitHsps(allHsps, hspLimit)
     if (!hsps.length) {
@@ -104,6 +105,9 @@ export function featuresFromBlastNHits({
         subjectTo: subjectRange?.to,
         subjectLengthBp: hit.len,
         hitLength: hit.len,
+        descriptionMemberCount: descriptions.length,
+        allAccessions: joinedDescriptionField(descriptions, 'accession'),
+        allDescriptions: joinedDescriptionField(descriptions, 'title'),
         maxHspsPerHit: hspLimit,
         availableHspCount: allHsps.length,
         mismatchMarkersShown: showMismatchMarkers,
@@ -291,10 +295,10 @@ function hspStats(hsp: BlastHsp) {
   }
 }
 
-function bestHits(hits: BlastHit[], hitLimit: number) {
+function bestHits(hits: BlastHit[], hitLimit: number, queryLength: number) {
   return [...hits]
     .filter(hit => hit.hsps.some(hasQueryRange))
-    .sort(compareHits)
+    .sort((a, b) => compareHits(a, b, queryLength))
     .slice(0, hitLimit)
 }
 
@@ -305,24 +309,51 @@ function limitHsps(
   return [...hsps].sort(compareHsps).slice(0, hspLimit)
 }
 
-function compareHits(a: BlastHit, b: BlastHit) {
-  const aHsps = a.hsps.filter(hasQueryRange)
-  const bHsps = b.hsps.filter(hasQueryRange)
-  const evalueDiff = bestEvalue(aHsps) - bestEvalue(bHsps)
+function compareHits(a: BlastHit, b: BlastHit, queryLength: number) {
+  const aStats = hitRankingStats(a, queryLength)
+  const bStats = hitRankingStats(b, queryLength)
+  const coverageDiff = bStats.queryCoverage - aStats.queryCoverage
+  if (Math.abs(coverageDiff) >= 5) {
+    return coverageDiff
+  }
+  const bitScoreDiff = bStats.bitScore - aStats.bitScore
+  if (bitScoreDiff) {
+    return bitScoreDiff
+  }
+  const alignedLengthDiff = bStats.alignedLength - aStats.alignedLength
+  if (alignedLengthDiff) {
+    return alignedLengthDiff
+  }
+  const informativeDescriptionDiff =
+    Number(bStats.hasInformativeDescription) -
+    Number(aStats.hasInformativeDescription)
+  if (informativeDescriptionDiff) {
+    return informativeDescriptionDiff
+  }
+  const evalueDiff = aStats.evalue - bStats.evalue
   if (evalueDiff) {
     return evalueDiff
   }
-  return bestBitScore(bHsps) - bestBitScore(aHsps)
+  const identityDiff = bStats.identity - aStats.identity
+  if (identityDiff) {
+    return identityDiff
+  }
+  return bStats.subjectLength - aStats.subjectLength
 }
 
 function compareHsps(a: BlastHsp, b: BlastHsp) {
-  const evalueDiff =
+  const bitScoreDiff = (b.bit_score ?? 0) - (a.bit_score ?? 0)
+  if (bitScoreDiff) {
+    return bitScoreDiff
+  }
+  const alignedLengthDiff = (b.align_len ?? 0) - (a.align_len ?? 0)
+  if (alignedLengthDiff) {
+    return alignedLengthDiff
+  }
+  return (
     (a.evalue ?? Number.POSITIVE_INFINITY) -
     (b.evalue ?? Number.POSITIVE_INFINITY)
-  if (evalueDiff) {
-    return evalueDiff
-  }
-  return (b.bit_score ?? 0) - (a.bit_score ?? 0)
+  )
 }
 
 function hspStrand(hsp?: BlastHsp) {
@@ -341,6 +372,20 @@ function bestBitScore(hsps: BlastHsp[]) {
   return Math.max(...hsps.map(hsp => hsp.bit_score ?? 0))
 }
 
+function hitRankingStats(hit: BlastHit, queryLength: number) {
+  const hsps = hit.hsps.filter(hasQueryRange)
+  return {
+    alignedLength: queryCoveredLength(hsps),
+    bitScore: bestBitScore(hsps),
+    evalue: bestEvalue(hsps),
+    hasInformativeDescription:
+      hit.description?.some(isInformativeDescription) ?? false,
+    identity: weightedPercent(hsps, 'identity'),
+    queryCoverage: queryCoveragePct(hsps, queryLength),
+    subjectLength: hit.len ?? 0,
+  }
+}
+
 function weightedPercent(hsps: BlastHsp[], field: 'identity') {
   const numerator = sum(hsps, field)
   const denominator = sum(hsps, 'align_len')
@@ -348,6 +393,10 @@ function weightedPercent(hsps: BlastHsp[], field: 'identity') {
 }
 
 function queryCoveragePct(hsps: BlastHsp[], queryLength: number) {
+  return percent(queryCoveredLength(hsps), queryLength)
+}
+
+function queryCoveredLength(hsps: BlastHsp[]) {
   const covered = new Set<number>()
   for (const hsp of hsps) {
     if (hsp.query_from === undefined || hsp.query_to === undefined) {
@@ -359,7 +408,7 @@ function queryCoveragePct(hsps: BlastHsp[], queryLength: number) {
       covered.add(i)
     }
   }
-  return percent(covered.size, queryLength)
+  return covered.size
 }
 
 function hspSubjectRange(hsps: BlastHsp[]) {
@@ -391,4 +440,29 @@ function sum(hsps: BlastHsp[], field: keyof BlastHsp) {
 
 function percent(numerator = 0, denominator = 0) {
   return denominator ? Number(((numerator / denominator) * 100).toFixed(2)) : 0
+}
+
+function displayDescription(descriptions: BlastHitDescription[]) {
+  return descriptions.find(isInformativeDescription) ?? descriptions[0] ?? {}
+}
+
+function isInformativeDescription(description: BlastHitDescription) {
+  const title = description.title?.trim()
+  return Boolean(title && !isGenericTitle(title))
+}
+
+function isGenericTitle(title: string) {
+  return /\b(hypothetical|uncharacteri[sz]ed|unnamed|predicted|unknown function)\b/i.test(
+    title,
+  )
+}
+
+function joinedDescriptionField(
+  descriptions: BlastHitDescription[],
+  field: 'accession' | 'title',
+) {
+  const values = descriptions
+    .map(description => description[field]?.trim())
+    .filter((value): value is string => Boolean(value))
+  return values.length ? values.join(' | ') : undefined
 }
