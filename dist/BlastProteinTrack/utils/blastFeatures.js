@@ -113,6 +113,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 descriptionMemberCount: descriptions.length,
                 allAccessions: joinedDescriptionField(descriptions, 'accession'),
                 allDescriptions: joinedDescriptionField(descriptions, 'title'),
+                deduplicatedProductKey: rankingStats.productKey,
                 subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
                 rankingScore: rankingStats.rankingScore,
                 maxHspsPerHit: hspLimit,
@@ -340,11 +341,16 @@ function bestHits(hits, hitLimit, queryProteinLength) {
 function selectDisplayedHits(rankedHits, hitLimit) {
     const selected = [];
     const selectedHits = new Set();
+    const selectedProductKeys = new Set();
     function add(hit) {
-        if (!hit || selectedHits.has(hit.hit) || selected.length >= hitLimit) {
+        if (!hit ||
+            selectedHits.has(hit.hit) ||
+            selectedProductKeys.has(hit.stats.productKey) ||
+            selected.length >= hitLimit) {
             return;
         }
         selectedHits.add(hit.hit);
+        selectedProductKeys.add(hit.stats.productKey);
         selected.push(hit);
     }
     add(rankedHits.find(({ stats }) => stats.isLikelyCompleteAnnotatedMatch));
@@ -448,6 +454,7 @@ function hitRankingStats(hit, queryProteinLength) {
             queryCoverage,
             subjectToQueryLengthRatio,
         }),
+        productKey: productKeyForHit(hit),
         subjectLength,
         subjectToQueryLengthRatio,
     };
@@ -526,6 +533,43 @@ function isInformativeDescription(description) {
 }
 function isGenericProteinTitle(title) {
     return /\b(hypothetical|uncharacteri[sz]ed|unnamed protein product|predicted protein|unknown function)\b/i.test(title);
+}
+function productKeyForHit(hit) {
+    const descriptions = hit.description ?? [];
+    const description = displayDescription(descriptions);
+    const title = stripOrganismSuffix(description.title ?? '').trim();
+    if (!title) {
+        return `accession:${description.accession ?? description.id ?? hit.num ?? 'unknown'}`;
+    }
+    if (isGenericProteinTitle(title)) {
+        return genericProductKey(title);
+    }
+    return `product:${normalizeProductTitle(title)}`;
+}
+function genericProductKey(title) {
+    if (/\bhypothetical\b/i.test(title)) {
+        return 'generic:hypothetical protein';
+    }
+    if (/\bunnamed\b/i.test(title)) {
+        return 'generic:unnamed protein product';
+    }
+    if (/\buncharacteri[sz]ed\b/i.test(title)) {
+        return 'generic:uncharacterized protein';
+    }
+    if (/\bpredicted\b/i.test(title)) {
+        return 'generic:predicted protein';
+    }
+    return `generic:${normalizeProductTitle(title)}`;
+}
+function stripOrganismSuffix(title) {
+    return title.replace(/\s+\[[^\]]+\]\s*$/, '');
+}
+function normalizeProductTitle(title) {
+    return stripOrganismSuffix(title)
+        .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:)\b/gi, ' ')
+        .replaceAll(/[^a-z0-9]+/gi, ' ')
+        .trim()
+        .toLowerCase();
 }
 function joinedDescriptionField(descriptions, field) {
     const values = descriptions

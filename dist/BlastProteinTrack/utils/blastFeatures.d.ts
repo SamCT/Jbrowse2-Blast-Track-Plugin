@@ -56,6 +56,7 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     descriptionMemberCount: number;
     allAccessions: string | undefined;
     allDescriptions: string | undefined;
+    deduplicatedProductKey: string;
     subjectToQueryLengthRatio: number;
     rankingScore: number;
     maxHspsPerHit: number;

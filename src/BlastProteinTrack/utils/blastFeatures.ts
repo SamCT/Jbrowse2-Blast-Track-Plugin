@@ -40,6 +40,7 @@ interface HitRankingStats {
   isStrongQueryLengthMatch: boolean
   queryCoverage: number
   rankingScore: number
+  productKey: string
   subjectLength: number
   subjectToQueryLengthRatio: number
 }
@@ -180,6 +181,7 @@ export function featuresFromBlastHits({
         descriptionMemberCount: descriptions.length,
         allAccessions: joinedDescriptionField(descriptions, 'accession'),
         allDescriptions: joinedDescriptionField(descriptions, 'title'),
+        deduplicatedProductKey: rankingStats.productKey,
         subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
         rankingScore: rankingStats.rankingScore,
         maxHspsPerHit: hspLimit,
@@ -524,12 +526,19 @@ function bestHits(
 function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
   const selected: RankedHit[] = []
   const selectedHits = new Set<BlastHit>()
+  const selectedProductKeys = new Set<string>()
 
   function add(hit?: RankedHit) {
-    if (!hit || selectedHits.has(hit.hit) || selected.length >= hitLimit) {
+    if (
+      !hit ||
+      selectedHits.has(hit.hit) ||
+      selectedProductKeys.has(hit.stats.productKey) ||
+      selected.length >= hitLimit
+    ) {
       return
     }
     selectedHits.add(hit.hit)
+    selectedProductKeys.add(hit.stats.productKey)
     selected.push(hit)
   }
 
@@ -654,6 +663,7 @@ function hitRankingStats(
       queryCoverage,
       subjectToQueryLengthRatio,
     }),
+    productKey: productKeyForHit(hit),
     subjectLength,
     subjectToQueryLengthRatio,
   }
@@ -767,6 +777,47 @@ function isGenericProteinTitle(title: string) {
   return /\b(hypothetical|uncharacteri[sz]ed|unnamed protein product|predicted protein|unknown function)\b/i.test(
     title,
   )
+}
+
+function productKeyForHit(hit: BlastHit) {
+  const descriptions = hit.description ?? []
+  const description = displayDescription(descriptions)
+  const title = stripOrganismSuffix(description.title ?? '').trim()
+  if (!title) {
+    return `accession:${description.accession ?? description.id ?? hit.num ?? 'unknown'}`
+  }
+  if (isGenericProteinTitle(title)) {
+    return genericProductKey(title)
+  }
+  return `product:${normalizeProductTitle(title)}`
+}
+
+function genericProductKey(title: string) {
+  if (/\bhypothetical\b/i.test(title)) {
+    return 'generic:hypothetical protein'
+  }
+  if (/\bunnamed\b/i.test(title)) {
+    return 'generic:unnamed protein product'
+  }
+  if (/\buncharacteri[sz]ed\b/i.test(title)) {
+    return 'generic:uncharacterized protein'
+  }
+  if (/\bpredicted\b/i.test(title)) {
+    return 'generic:predicted protein'
+  }
+  return `generic:${normalizeProductTitle(title)}`
+}
+
+function stripOrganismSuffix(title: string) {
+  return title.replace(/\s+\[[^\]]+\]\s*$/, '')
+}
+
+function normalizeProductTitle(title: string) {
+  return stripOrganismSuffix(title)
+    .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:)\b/gi, ' ')
+    .replaceAll(/[^a-z0-9]+/gi, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 function joinedDescriptionField(
