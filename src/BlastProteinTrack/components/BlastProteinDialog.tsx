@@ -251,7 +251,7 @@ export default function BlastProteinDialog({
                 }}
               />
             }
-            label={`Append to existing BLASTP track: ${appendTargetTrack.name}`}
+            label={`Append to existing BLASTP track (experimental): ${appendTargetTrack.name}`}
           />
         ) : null}
         <Typography sx={{ mt: 2 }} variant="body2">

@@ -517,7 +517,7 @@ export default function BlastSelectionDialog({
                 }}
               />
             }
-            label={`Append to existing ${appendBlastProgram.toUpperCase()} track: ${
+            label={`Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${
               appendTargetTrack.name
             }`}
           />
