@@ -1,5 +1,5 @@
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getSession } from '@jbrowse/core/util';
 import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
@@ -41,6 +41,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [error, setError] = useState();
     const [running, setRunning] = useState(false);
     const [appendToExistingTrack, setAppendToExistingTrack] = useState(appendableBlastTracks.length > 0);
+    const [appendChoiceTouched, setAppendChoiceTouched] = useState(false);
     const appendTargetTrack = appendableBlastTracks[0];
     const title = mode === 'blastn-region'
         ? 'BLASTN selected region'
@@ -48,6 +49,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const regionText = regions.length === 1
         ? regionLabel(regions[0])
         : `${regions.length} selected regions`;
+    useEffect(() => {
+        if (appendTargetTrack && !appendChoiceTouched) {
+            setAppendToExistingTrack(true);
+        }
+    }, [appendChoiceTouched, appendTargetTrack?.trackId]);
     async function runBlast() {
         try {
             setRunning(true);
@@ -304,6 +310,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
+                                setAppendChoiceTouched(true);
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track: ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes. Hits are drawn over each query gene CDS.'

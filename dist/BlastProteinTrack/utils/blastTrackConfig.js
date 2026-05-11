@@ -6,27 +6,22 @@ export function addBlastFeatureTrack({ appendToTrackId, assemblyName, baseUrl, b
         ? features.map(feature => addBlastResultLink(feature, { baseUrl, rid }))
         : features;
     if (appendToTrackId) {
-        const existingTrack = findTrackConf(session, appendToTrackId);
+        const existingTrack = findTrackConf({
+            session,
+            trackId: appendToTrackId,
+            view,
+        });
         if (existingTrack) {
             const existingFeatures = featuresFromTrack(existingTrack);
             const mergedFeatures = makeUniqueFeatureIds([
                 ...existingFeatures,
                 ...linkedFeatures,
             ]);
-            const existingName = stringConf(existingTrack, 'name') || name || appendToTrackId;
-            const existingAssemblyNames = arrayConf(existingTrack, 'assemblyNames') || [assemblyName];
-            hideVisibleTrack(view, appendToTrackId);
-            session.deleteTrackConf?.(existingTrack);
-            session.addTrackConf(blastTrackConf({
-                assemblyNames: existingAssemblyNames,
-                blastProgram,
-                features: mergedFeatures,
-                name: existingName,
-                trackId: appendToTrackId,
-            }));
-            view.showTrack(appendToTrackId);
+            updateTrackAdapter(existingTrack, mergedFeatures);
+            reloadVisibleTrack(view, appendToTrackId);
             return;
         }
+        throw new Error(`Could not find BLAST track to append to: ${appendToTrackId}`);
     }
     session.addTrackConf(blastTrackConf({
         assemblyNames: [assemblyName],
@@ -40,7 +35,7 @@ export function addBlastFeatureTrack({ appendToTrackId, assemblyName, baseUrl, b
 export function getAppendableBlastTracks({ assemblyName, blastProgram, view, }) {
     try {
         const session = getSession(view);
-        return trackConfs(session)
+        return trackConfs({ session, view })
             .filter(track => isAppendableBlastTrack(track, assemblyName, blastProgram))
             .map(track => ({
             name: stringConf(track, 'name') ||
@@ -91,12 +86,53 @@ function blastTrackConf({ assemblyNames, blastProgram, features, name, trackId, 
         ],
     };
 }
-function trackConfs(session) {
-    const source = session.sessionTracks ?? session.tracks;
-    return source ? Array.from(source) : [];
+function trackConfs({ session, view, }) {
+    const seen = new Set();
+    const tracks = [];
+    const visibleTrackConfs = view.tracks.map(track => track.configuration);
+    for (const source of [
+        session.sessionTracks,
+        session.tracks,
+        visibleTrackConfs,
+    ]) {
+        if (!source) {
+            continue;
+        }
+        for (const track of Array.from(source)) {
+            const trackId = stringConf(track, 'trackId');
+            if (!trackId || seen.has(trackId)) {
+                continue;
+            }
+            seen.add(trackId);
+            tracks.push(track);
+        }
+    }
+    return tracks;
 }
-function findTrackConf(session, trackId) {
-    return trackConfs(session).find(track => stringConf(track, 'trackId') === trackId);
+function findTrackConf({ session, trackId, view, }) {
+    return (trackConfs({ session, view }).find(track => stringConf(track, 'trackId') === trackId) ??
+        view.tracks.find(track => track.configuration.trackId === trackId)?.configuration);
+}
+function updateTrackAdapter(track, features) {
+    const adapter = {
+        type: 'FromConfigAdapter',
+        features,
+    };
+    if (typeof track.setSubschema === 'function') {
+        track.setSubschema('adapter', adapter);
+        return;
+    }
+    track.adapter = adapter;
+}
+function reloadVisibleTrack(view, trackId) {
+    const visibleTrack = view.tracks.find(track => track.configuration.trackId === trackId);
+    if (!visibleTrack) {
+        view.showTrack(trackId);
+        return;
+    }
+    for (const display of visibleTrack.displays ?? []) {
+        void display.reload?.();
+    }
 }
 function isAppendableBlastTrack(track, assemblyName, blastProgram) {
     if (stringConf(track, 'type') !== 'FeatureTrack') {
@@ -153,11 +189,6 @@ function readSlot(track, slot) {
 }
 function isString(value) {
     return typeof value === 'string';
-}
-function hideVisibleTrack(view, trackId) {
-    if (view.tracks.some(track => track.configuration.trackId === trackId)) {
-        view.hideTrack(trackId);
-    }
 }
 function makeUniqueFeatureIds(features) {
     const seen = new Set();

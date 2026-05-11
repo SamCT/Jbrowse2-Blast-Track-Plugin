@@ -1,6 +1,7 @@
 const blastToolName = 'BlastTrack';
 const submitIntervalMs = 10_000;
-const pollIntervalSeconds = 60;
+const minimumInitialPollSeconds = 10;
+const waitingPollIntervalSeconds = 60;
 let submitQueue = Promise.resolve();
 let lastSubmitStartedAt = 0;
 export async function queryBlast({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
@@ -29,7 +30,12 @@ export async function queryBlastReports({ query, blastDatabase, blastProgram, co
         baseUrl,
         onProgress,
     });
-    await waitForBlastResults({ rid, baseUrl, contactEmail, onProgress });
+    await waitForBlastResults({
+        rid,
+        baseUrl,
+        contactEmail,
+        onProgress,
+    });
     onProgress('Downloading BLAST alignments...');
     const result = await jsonFetch(`${baseUrl}?${blastParams({
         contactEmail,
@@ -88,8 +94,9 @@ async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEma
     });
 }
 async function waitForBlastResults({ rid, baseUrl, contactEmail, onProgress, }) {
+    let nextPollSeconds = minimumInitialPollSeconds;
     while (true) {
-        for (let i = pollIntervalSeconds; i > 0; i--) {
+        for (let i = nextPollSeconds; i > 0; i--) {
             onProgress(`Waiting for NCBI BLAST RID ${rid}. Checking again in ${i}s.`);
             await timeout(1000);
         }
@@ -106,6 +113,7 @@ async function waitForBlastResults({ rid, baseUrl, contactEmail, onProgress, }) 
         const ready = /\s+Status=READY/m.test(response);
         const hasHits = /\s+ThereAreHits=yes/m.test(response);
         if (waiting) {
+            nextPollSeconds = waitingPollIntervalSeconds;
             continue;
         }
         if (failed) {

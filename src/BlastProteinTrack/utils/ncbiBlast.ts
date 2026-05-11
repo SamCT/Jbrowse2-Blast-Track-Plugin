@@ -2,7 +2,8 @@ import type { BlastHit, BlastResults } from './types'
 
 const blastToolName = 'BlastTrack'
 const submitIntervalMs = 10_000
-const pollIntervalSeconds = 60
+const minimumInitialPollSeconds = 10
+const waitingPollIntervalSeconds = 60
 
 let submitQueue = Promise.resolve()
 let lastSubmitStartedAt = 0
@@ -74,7 +75,12 @@ export async function queryBlastReports({
     baseUrl,
     onProgress,
   })
-  await waitForBlastResults({ rid, baseUrl, contactEmail, onProgress })
+  await waitForBlastResults({
+    rid,
+    baseUrl,
+    contactEmail,
+    onProgress,
+  })
   onProgress('Downloading BLAST alignments...')
   const result = await jsonFetch<BlastResults>(`${baseUrl}?${blastParams({
     contactEmail,
@@ -143,7 +149,6 @@ async function submitBlastQuery({
       })
       const response = await textFetch(baseUrl, { method: 'POST', body })
       const rid = /^ {4}RID = (.*$)/m.exec(response)?.[1]
-
       if (!rid) {
         throw new Error('Failed to get RID from NCBI BLAST response')
       }
@@ -163,8 +168,10 @@ async function waitForBlastResults({
   contactEmail?: string
   onProgress: (arg: string) => void
 }) {
+  let nextPollSeconds = minimumInitialPollSeconds
+
   while (true) {
-    for (let i = pollIntervalSeconds; i > 0; i--) {
+    for (let i = nextPollSeconds; i > 0; i--) {
       onProgress(`Waiting for NCBI BLAST RID ${rid}. Checking again in ${i}s.`)
       await timeout(1000)
     }
@@ -183,6 +190,7 @@ async function waitForBlastResults({
     const hasHits = /\s+ThereAreHits=yes/m.test(response)
 
     if (waiting) {
+      nextPollSeconds = waitingPollIntervalSeconds
       continue
     }
     if (failed) {

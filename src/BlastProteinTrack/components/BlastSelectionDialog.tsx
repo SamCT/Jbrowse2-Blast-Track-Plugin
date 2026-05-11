@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui'
 import { getSession } from '@jbrowse/core/util'
@@ -88,6 +88,7 @@ export default function BlastSelectionDialog({
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(
     appendableBlastTracks.length > 0,
   )
+  const [appendChoiceTouched, setAppendChoiceTouched] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
 
   const title =
@@ -98,6 +99,12 @@ export default function BlastSelectionDialog({
     regions.length === 1
       ? regionLabel(regions[0])
       : `${regions.length} selected regions`
+
+  useEffect(() => {
+    if (appendTargetTrack && !appendChoiceTouched) {
+      setAppendToExistingTrack(true)
+    }
+  }, [appendChoiceTouched, appendTargetTrack?.trackId])
 
   async function runBlast() {
     try {
@@ -505,6 +512,7 @@ export default function BlastSelectionDialog({
               <Checkbox
                 checked={appendToExistingTrack}
                 onChange={event => {
+                  setAppendChoiceTouched(true)
                   setAppendToExistingTrack(event.target.checked)
                 }}
               />

@@ -67,6 +67,7 @@ export default function BlastProteinDialog({
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(
     appendableBlastTracks.length > 0,
   )
+  const [appendChoiceTouched, setAppendChoiceTouched] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
 
   useEffect(() => {
@@ -94,6 +95,12 @@ export default function BlastProteinDialog({
       active = false
     }
   }, [feature, view])
+
+  useEffect(() => {
+    if (appendTargetTrack && !appendChoiceTouched) {
+      setAppendToExistingTrack(true)
+    }
+  }, [appendChoiceTouched, appendTargetTrack?.trackId])
 
   async function runBlast() {
     if (!proteinSequence) {
@@ -239,6 +246,7 @@ export default function BlastProteinDialog({
               <Checkbox
                 checked={appendToExistingTrack}
                 onChange={event => {
+                  setAppendChoiceTouched(true)
                   setAppendToExistingTrack(event.target.checked)
                 }}
               />
