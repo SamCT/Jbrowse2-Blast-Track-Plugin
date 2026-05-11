@@ -312,6 +312,15 @@ function limitHsps(
 function compareHits(a: BlastHit, b: BlastHit, queryLength: number) {
   const aStats = hitRankingStats(a, queryLength)
   const bStats = hitRankingStats(b, queryLength)
+  const informativeDescriptionDiff =
+    Number(bStats.hasInformativeDescription) -
+    Number(aStats.hasInformativeDescription)
+  if (
+    informativeDescriptionDiff &&
+    areComparableFunctionalMatches(aStats, bStats)
+  ) {
+    return informativeDescriptionDiff
+  }
   const coverageDiff = bStats.queryCoverage - aStats.queryCoverage
   if (Math.abs(coverageDiff) >= 5) {
     return coverageDiff
@@ -324,9 +333,6 @@ function compareHits(a: BlastHit, b: BlastHit, queryLength: number) {
   if (alignedLengthDiff) {
     return alignedLengthDiff
   }
-  const informativeDescriptionDiff =
-    Number(bStats.hasInformativeDescription) -
-    Number(aStats.hasInformativeDescription)
   if (informativeDescriptionDiff) {
     return informativeDescriptionDiff
   }
@@ -339,6 +345,16 @@ function compareHits(a: BlastHit, b: BlastHit, queryLength: number) {
     return identityDiff
   }
   return bStats.subjectLength - aStats.subjectLength
+}
+
+function areComparableFunctionalMatches(
+  a: ReturnType<typeof hitRankingStats>,
+  b: ReturnType<typeof hitRankingStats>,
+) {
+  return (
+    Math.min(a.queryCoverage, b.queryCoverage) >= 50 &&
+    Math.abs(a.queryCoverage - b.queryCoverage) <= 30
+  )
 }
 
 function compareHsps(a: BlastHsp, b: BlastHsp) {

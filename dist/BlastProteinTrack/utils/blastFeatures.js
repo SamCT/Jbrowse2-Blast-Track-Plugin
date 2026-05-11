@@ -335,6 +335,12 @@ function limitHsps(hsps, hspLimit) {
 function compareHits(a, b, queryProteinLength) {
     const aStats = hitRankingStats(a, queryProteinLength);
     const bStats = hitRankingStats(b, queryProteinLength);
+    const informativeDescriptionDiff = Number(bStats.hasInformativeDescription) -
+        Number(aStats.hasInformativeDescription);
+    if (informativeDescriptionDiff &&
+        areComparableFunctionalMatches(aStats, bStats)) {
+        return informativeDescriptionDiff;
+    }
     const coverageDiff = bStats.queryCoverage - aStats.queryCoverage;
     if (Math.abs(coverageDiff) >= 5) {
         return coverageDiff;
@@ -347,8 +353,6 @@ function compareHits(a, b, queryProteinLength) {
     if (alignedLengthDiff) {
         return alignedLengthDiff;
     }
-    const informativeDescriptionDiff = Number(bStats.hasInformativeDescription) -
-        Number(aStats.hasInformativeDescription);
     if (informativeDescriptionDiff) {
         return informativeDescriptionDiff;
     }
@@ -361,6 +365,10 @@ function compareHits(a, b, queryProteinLength) {
         return identityDiff;
     }
     return bStats.subjectLength - aStats.subjectLength;
+}
+function areComparableFunctionalMatches(a, b) {
+    return (Math.min(a.queryCoverage, b.queryCoverage) >= 50 &&
+        Math.abs(a.queryCoverage - b.queryCoverage) <= 30);
 }
 function compareHsps(a, b) {
     const bitScoreDiff = (b.bit_score ?? 0) - (a.bit_score ?? 0);

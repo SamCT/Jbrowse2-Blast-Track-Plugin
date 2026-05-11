@@ -4,6 +4,8 @@ const blastToolName = 'BlastTrack'
 const submitIntervalMs = 10_000
 const initialPollSeconds = 30
 const waitingPollIntervalSeconds = 30
+const minimumCandidateHits = 30
+const maximumCandidateHits = 100
 
 let submitQueue = Promise.resolve()
 let lastSubmitStartedAt = 0
@@ -133,7 +135,7 @@ async function submitBlastQuery({
           PROGRAM: blastProgram === 'quick-blastp' ? 'blastp' : blastProgram,
           DATABASE: blastDatabase,
           QUERY: query,
-          HITLIST_SIZE: String(hitLimit),
+          HITLIST_SIZE: String(candidateHitLimit(hitLimit)),
           ...(blastDatabase === 'nr_clustered_seq'
             ? {
                 CLUSTERED_DB: 'on',
@@ -256,6 +258,13 @@ function blastParams({
     tool: blastToolName,
     ...(email ? { email } : {}),
   })
+}
+
+function candidateHitLimit(displayHitLimit: number) {
+  return Math.min(
+    maximumCandidateHits,
+    Math.max(displayHitLimit, minimumCandidateHits, displayHitLimit * 10),
+  )
 }
 
 async function textFetch(url: string, init?: RequestInit) {
