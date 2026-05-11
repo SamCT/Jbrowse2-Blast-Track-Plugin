@@ -52,9 +52,12 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     subjectTo: number | undefined;
     subjectProteinLengthAa: number | undefined;
     hitLength: number | undefined;
+    candidateClass: string;
     descriptionMemberCount: number;
     allAccessions: string | undefined;
     allDescriptions: string | undefined;
+    subjectToQueryLengthRatio: number;
+    rankingScore: number;
     maxHspsPerHit: number;
     availableHspCount: number;
     mismatchMarkersShown: boolean;

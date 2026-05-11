@@ -25,6 +25,25 @@ interface CodingSegment {
   strand: number
 }
 
+interface RankedHit {
+  hit: BlastHit
+  stats: HitRankingStats
+}
+
+interface HitRankingStats {
+  alignedLength: number
+  bitScore: number
+  evalue: number
+  hasInformativeDescription: boolean
+  identity: number
+  isLikelyCompleteAnnotatedMatch: boolean
+  isStrongQueryLengthMatch: boolean
+  queryCoverage: number
+  rankingScore: number
+  subjectLength: number
+  subjectToQueryLengthRatio: number
+}
+
 export function featuresFromBlastHits({
   hspLimit,
   hits,
@@ -106,6 +125,7 @@ export function featuresFromBlastHits({
     const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
     const bestHsp = [...hsps].sort(compareHsps)[0]
     const subjectRange = hspSubjectRange(hsps)
+    const rankingStats = hitRankingStats(hit, queryProteinLength)
 
     return [
       {
@@ -156,9 +176,12 @@ export function featuresFromBlastHits({
         subjectTo: subjectRange?.to,
         subjectProteinLengthAa: hit.len,
         hitLength: hit.len,
+        candidateClass: candidateClass(rankingStats),
         descriptionMemberCount: descriptions.length,
         allAccessions: joinedDescriptionField(descriptions, 'accession'),
         allDescriptions: joinedDescriptionField(descriptions, 'title'),
+        subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
+        rankingScore: rankingStats.rankingScore,
         maxHspsPerHit: hspLimit,
         availableHspCount: allHsps.length,
         mismatchMarkersShown: showMismatchMarkers,
@@ -487,10 +510,38 @@ function bestHits(
   hitLimit: number,
   queryProteinLength: number,
 ) {
-  return [...hits]
+  const rankedHits = [...hits]
     .filter(hit => hit.hsps.some(hasQueryRange))
-    .sort((a, b) => compareHits(a, b, queryProteinLength))
-    .slice(0, hitLimit)
+    .map(hit => ({
+      hit,
+      stats: hitRankingStats(hit, queryProteinLength),
+    }))
+    .sort(compareRankedHits)
+
+  return selectDisplayedHits(rankedHits, hitLimit).map(({ hit }) => hit)
+}
+
+function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
+  const selected: RankedHit[] = []
+  const selectedHits = new Set<BlastHit>()
+
+  function add(hit?: RankedHit) {
+    if (!hit || selectedHits.has(hit.hit) || selected.length >= hitLimit) {
+      return
+    }
+    selectedHits.add(hit.hit)
+    selected.push(hit)
+  }
+
+  add(rankedHits.find(({ stats }) => stats.isLikelyCompleteAnnotatedMatch))
+  if (hitLimit > 1) {
+    add(rankedHits.find(({ stats }) => stats.isStrongQueryLengthMatch))
+  }
+  for (const rankedHit of rankedHits) {
+    add(rankedHit)
+  }
+
+  return selected
 }
 
 function limitHsps(
@@ -500,17 +551,12 @@ function limitHsps(
   return [...hsps].sort(compareHsps).slice(0, hspLimit)
 }
 
-function compareHits(a: BlastHit, b: BlastHit, queryProteinLength: number) {
-  const aStats = hitRankingStats(a, queryProteinLength)
-  const bStats = hitRankingStats(b, queryProteinLength)
-  const informativeDescriptionDiff =
-    Number(bStats.hasInformativeDescription) -
-    Number(aStats.hasInformativeDescription)
-  if (
-    informativeDescriptionDiff &&
-    areComparableFunctionalMatches(aStats, bStats)
-  ) {
-    return informativeDescriptionDiff
+function compareRankedHits(a: RankedHit, b: RankedHit) {
+  const aStats = a.stats
+  const bStats = b.stats
+  const rankingScoreDiff = bStats.rankingScore - aStats.rankingScore
+  if (rankingScoreDiff) {
+    return rankingScoreDiff
   }
   const coverageDiff = bStats.queryCoverage - aStats.queryCoverage
   if (Math.abs(coverageDiff) >= 5) {
@@ -524,6 +570,9 @@ function compareHits(a: BlastHit, b: BlastHit, queryProteinLength: number) {
   if (alignedLengthDiff) {
     return alignedLengthDiff
   }
+  const informativeDescriptionDiff =
+    Number(bStats.hasInformativeDescription) -
+    Number(aStats.hasInformativeDescription)
   if (informativeDescriptionDiff) {
     return informativeDescriptionDiff
   }
@@ -536,16 +585,6 @@ function compareHits(a: BlastHit, b: BlastHit, queryProteinLength: number) {
     return identityDiff
   }
   return bStats.subjectLength - aStats.subjectLength
-}
-
-function areComparableFunctionalMatches(
-  a: ReturnType<typeof hitRankingStats>,
-  b: ReturnType<typeof hitRankingStats>,
-) {
-  return (
-    Math.min(a.queryCoverage, b.queryCoverage) >= 50 &&
-    Math.abs(a.queryCoverage - b.queryCoverage) <= 30
-  )
 }
 
 function compareHsps(a: BlastHsp, b: BlastHsp) {
@@ -571,18 +610,92 @@ function bestBitScore(hsps: BlastHsp[]) {
   return Math.max(...hsps.map(hsp => hsp.bit_score ?? 0))
 }
 
-function hitRankingStats(hit: BlastHit, queryProteinLength: number) {
+function hitRankingStats(
+  hit: BlastHit,
+  queryProteinLength: number,
+): HitRankingStats {
   const hsps = hit.hsps.filter(hasQueryRange)
+  const subjectLength = hit.len ?? 0
+  const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
+  const identity = weightedPercent(hsps, 'identity')
+  const evalue = bestEvalue(hsps)
+  const bitScore = bestBitScore(hsps)
+  const hasInformativeDescription =
+    hit.description?.some(isInformativeDescription) ?? false
+  const subjectToQueryLengthRatio = queryProteinLength
+    ? Number((subjectLength / queryProteinLength).toFixed(2))
+    : 0
+  const isLikelyCompleteAnnotatedMatch =
+    hasInformativeDescription &&
+    subjectToQueryLengthRatio >= 1.2 &&
+    queryCoverage >= 50 &&
+    identity >= 30 &&
+    evalue <= 1e-5
+  const isStrongQueryLengthMatch =
+    queryCoverage >= 98 &&
+    identity >= 90 &&
+    subjectToQueryLengthRatio <= 1.25
+
   return {
     alignedLength: queryCoveredLength(hsps),
-    bitScore: bestBitScore(hsps),
-    evalue: bestEvalue(hsps),
-    hasInformativeDescription:
-      hit.description?.some(isInformativeDescription) ?? false,
-    identity: weightedPercent(hsps, 'identity'),
-    queryCoverage: queryCoveragePct(hsps, queryProteinLength),
-    subjectLength: hit.len ?? 0,
+    bitScore,
+    evalue,
+    hasInformativeDescription,
+    identity,
+    isLikelyCompleteAnnotatedMatch,
+    isStrongQueryLengthMatch,
+    queryCoverage,
+    rankingScore: hitRankingScore({
+      bitScore,
+      hasInformativeDescription,
+      identity,
+      isLikelyCompleteAnnotatedMatch,
+      isStrongQueryLengthMatch,
+      queryCoverage,
+      subjectToQueryLengthRatio,
+    }),
+    subjectLength,
+    subjectToQueryLengthRatio,
   }
+}
+
+function hitRankingScore({
+  bitScore,
+  hasInformativeDescription,
+  identity,
+  isLikelyCompleteAnnotatedMatch,
+  isStrongQueryLengthMatch,
+  queryCoverage,
+  subjectToQueryLengthRatio,
+}: Pick<
+  HitRankingStats,
+  | 'bitScore'
+  | 'hasInformativeDescription'
+  | 'identity'
+  | 'isLikelyCompleteAnnotatedMatch'
+  | 'isStrongQueryLengthMatch'
+  | 'queryCoverage'
+  | 'subjectToQueryLengthRatio'
+>) {
+  return (
+    (isLikelyCompleteAnnotatedMatch ? 10_000 : 0) +
+    (isStrongQueryLengthMatch ? 500 : 0) +
+    (hasInformativeDescription ? 1_000 : -300) +
+    queryCoverage * 8 +
+    identity * 2 +
+    bitScore +
+    Math.min(subjectToQueryLengthRatio, 5) * 75
+  )
+}
+
+function candidateClass(stats: HitRankingStats) {
+  if (stats.isLikelyCompleteAnnotatedMatch) {
+    return 'likely complete annotated homolog'
+  }
+  if (stats.isStrongQueryLengthMatch) {
+    return 'query-length match'
+  }
+  return 'alignment match'
 }
 
 function weightedPercent(hsps: BlastHsp[], field: 'identity' | 'positive') {
