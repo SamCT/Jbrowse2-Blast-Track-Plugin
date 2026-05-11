@@ -212,7 +212,7 @@ export default function BlastProteinDialog({
         <TextField
           margin="normal"
           type="number"
-          label="Max hits"
+          label="Number of matches"
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
@@ -222,7 +222,7 @@ export default function BlastProteinDialog({
         <TextField
           margin="normal"
           type="number"
-          label="Max HSPs/hit"
+          label="Segments per match"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))

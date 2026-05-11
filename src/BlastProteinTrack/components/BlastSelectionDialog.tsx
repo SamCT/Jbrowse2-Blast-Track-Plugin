@@ -478,7 +478,11 @@ export default function BlastSelectionDialog({
         <TextField
           margin="normal"
           type="number"
-          label={mode === 'blastp-genes' ? 'Max hits/gene' : 'Max hits'}
+          label={
+            mode === 'blastp-genes'
+              ? 'Matches per gene'
+              : 'Number of matches'
+          }
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
@@ -488,7 +492,7 @@ export default function BlastSelectionDialog({
         <TextField
           margin="normal"
           type="number"
-          label="Max HSPs/hit"
+          label="Segments per match"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))

@@ -303,9 +303,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastDatabase(event.target.value);
                                 }, sx: { mr: 2, minWidth: 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max region bp", value: maxRegionBp, onChange: event => {
                                     setMaxRegionBp(Number(event.target.value));
-                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: mode === 'blastp-genes' ? 'Max hits/gene' : 'Max hits', value: hitLimit, onChange: event => {
+                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: mode === 'blastp-genes'
+                            ? 'Matches per gene'
+                            : 'Number of matches', value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 130 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max HSPs/hit", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: 130 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Segments per match", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);

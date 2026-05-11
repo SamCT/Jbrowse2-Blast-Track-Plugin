@@ -128,9 +128,9 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             setBlastProgram(event.target.value);
                         }, sx: { minWidth: 180 }, children: blastProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                 ? 'quick-blastp (faster NCBI protein BLAST)'
-                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Max hits", value: hitLimit, onChange: event => {
+                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Number of matches", value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 120 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max HSPs/hit", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: 120 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Segments per match", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 140 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
