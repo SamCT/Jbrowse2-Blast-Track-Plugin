@@ -323,7 +323,9 @@ export default function BlastSelectionDialog({
       if (renderedHits.length) {
         return []
       }
-      const status = reportMatch?.report ? 'no_hits' : 'no_report'
+      if (reportMatch?.report) {
+        return []
+      }
       return [
         queryGeneFeature({
           feature,
@@ -332,7 +334,7 @@ export default function BlastSelectionDialog({
           reportMatchedBy: reportMatch?.matchedBy,
           reportQueryId: reportMatch?.report?.queryId,
           reportQueryTitle: reportMatch?.report?.queryTitle,
-          status,
+          status: 'no_report',
         }),
       ]
     })
@@ -444,12 +446,12 @@ export default function BlastSelectionDialog({
             <TextField
               margin="normal"
               type="number"
-              label="Genes to BLAST"
+              label="Genes"
               value={maxGenes}
               onChange={event => {
                 setMaxGenes(Number(event.target.value))
               }}
-              sx={{ ml: 2, width: 130 }}
+              sx={{ ml: 2, width: 100 }}
             />
           </>
         ) : (
@@ -478,26 +480,22 @@ export default function BlastSelectionDialog({
         <TextField
           margin="normal"
           type="number"
-          label={
-            mode === 'blastp-genes'
-              ? 'Top BLAST hits per gene'
-              : 'Top BLAST hits'
-          }
+          label="Hits"
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: mode === 'blastp-genes' ? 190 : 150 }}
+          sx={{ ml: 2, width: 90 }}
         />
         <TextField
           margin="normal"
           type="number"
-          label="Alignment segments per hit"
+          label="HSPs"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 200 }}
+          sx={{ ml: 2, width: 90 }}
         />
         <FormControlLabel
           control={

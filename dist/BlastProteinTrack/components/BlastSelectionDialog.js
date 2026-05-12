@@ -230,7 +230,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             if (renderedHits.length) {
                 return [];
             }
-            const status = reportMatch?.report ? 'no_hits' : 'no_report';
+            if (reportMatch?.report) {
+                return [];
+            }
             return [
                 queryGeneFeature({
                     feature,
@@ -239,7 +241,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                     reportMatchedBy: reportMatch?.matchedBy,
                     reportQueryId: reportMatch?.report?.queryId,
                     reportQueryTitle: reportMatch?.report?.queryTitle,
-                    status,
+                    status: 'no_report',
                 }),
             ];
         });
@@ -297,19 +299,17 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'
-                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Genes to BLAST", value: maxGenes, onChange: event => {
+                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Genes", value: maxGenes, onChange: event => {
                                     setMaxGenes(Number(event.target.value));
-                                }, sx: { ml: 2, width: 130 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
+                                }, sx: { ml: 2, width: 100 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
                                     setBlastDatabase(event.target.value);
                                 }, sx: { mr: 2, minWidth: 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max region bp", value: maxRegionBp, onChange: event => {
                                     setMaxRegionBp(Number(event.target.value));
-                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: mode === 'blastp-genes'
-                            ? 'Top BLAST hits per gene'
-                            : 'Top BLAST hits', value: hitLimit, onChange: event => {
+                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: "Hits", value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 150 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments per hit", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: 90 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 200 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
+                        }, sx: { ml: 2, width: 90 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendChoiceTouched(true);

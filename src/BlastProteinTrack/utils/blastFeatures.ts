@@ -36,6 +36,7 @@ interface HitRankingStats {
   evalue: number
   hasInformativeDescription: boolean
   identity: number
+  isLongerSubjectMatch: boolean
   isLikelyCompleteAnnotatedMatch: boolean
   isStrongQueryLengthMatch: boolean
   queryCoverage: number
@@ -78,9 +79,12 @@ export function featuresFromBlastHits({
     if (!hsps.length) {
       return []
     }
+    const rankingStats = hitRankingStats(hit, queryProteinLength)
+    const blastCandidateClass = candidateClass(rankingStats)
 
     const hspBlocks = hsps.flatMap((hsp, hspIndex) =>
       hspToCdsBlocks({
+        blastCandidateClass,
         description,
         hitIndex,
         hsp,
@@ -93,6 +97,7 @@ export function featuresFromBlastHits({
         queryStart,
         queryStrand,
         codingSegments,
+        subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
       }),
     )
     const mismatchMarkers = showMismatchMarkers
@@ -133,7 +138,6 @@ export function featuresFromBlastHits({
     const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
     const bestHsp = [...hsps].sort(compareHsps)[0]
     const subjectRange = hspSubjectRange(hsps)
-    const rankingStats = hitRankingStats(hit, queryProteinLength)
 
     return [
       {
@@ -154,8 +158,8 @@ export function featuresFromBlastHits({
         mismatches,
         gaps,
         hspCount: hsps.length,
-        candidateClass: candidateClass(rankingStats),
-        blastCandidateClass: candidateClass(rankingStats),
+        candidateClass: blastCandidateClass,
+        blastCandidateClass,
         subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
         strand: queryStrand,
         score: bitScore,
@@ -242,6 +246,7 @@ function getCodingSegments(feature: Feature): CodingSegment[] {
 }
 
 function hspToCdsBlocks({
+  blastCandidateClass,
   description,
   hitIndex,
   hsp,
@@ -254,7 +259,9 @@ function hspToCdsBlocks({
   queryStart,
   queryStrand,
   codingSegments,
+  subjectToQueryLengthRatio,
 }: {
+  blastCandidateClass?: string
   description: { accession?: string; id?: string }
   hitIndex: number
   hsp: BlastHsp & Required<Pick<BlastHsp, 'query_from' | 'query_to'>>
@@ -267,6 +274,7 @@ function hspToCdsBlocks({
   queryStart: number
   queryStrand: number
   codingSegments: CodingSegment[]
+  subjectToQueryLengthRatio?: number
 }) {
   const codingStart = (Math.min(hsp.query_from, hsp.query_to) - 1) * 3
   const codingEnd = Math.max(hsp.query_from, hsp.query_to) * 3
@@ -297,6 +305,9 @@ function hspToCdsBlocks({
         : `HSP ${hspIndex + 1}.${partIndex + 1}`,
     strand: queryStrand,
     source: 'NCBI BLASTP',
+    blastCandidateClass,
+    candidateClass: blastCandidateClass,
+    subjectToQueryLengthRatio,
     hspNumber: hspIndex + 1,
     hspPart: partIndex + 1,
     queryAaRange: `${Math.min(hsp.query_from, hsp.query_to)}-${Math.max(
@@ -659,6 +670,8 @@ function hitRankingStats(
     queryCoverage >= 98 &&
     identity >= 90 &&
     subjectToQueryLengthRatio <= 1.25
+  const isLongerSubjectMatch =
+    queryProteinLength > 0 && subjectLength > queryProteinLength
 
   return {
     alignedLength: queryCoveredLength(hsps),
@@ -666,6 +679,7 @@ function hitRankingStats(
     evalue,
     hasInformativeDescription,
     identity,
+    isLongerSubjectMatch,
     isLikelyCompleteAnnotatedMatch,
     isStrongQueryLengthMatch,
     queryCoverage,
@@ -715,6 +729,9 @@ function hitRankingScore({
 }
 
 function candidateClass(stats: HitRankingStats) {
+  if (stats.isLongerSubjectMatch) {
+    return 'longer subject match'
+  }
   if (stats.isLikelyCompleteAnnotatedMatch) {
     return 'likely complete annotated homolog'
   }

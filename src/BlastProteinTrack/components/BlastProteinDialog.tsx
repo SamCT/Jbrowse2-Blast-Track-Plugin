@@ -212,22 +212,22 @@ export default function BlastProteinDialog({
         <TextField
           margin="normal"
           type="number"
-          label="Top BLAST hits"
+          label="Hits"
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 150 }}
+          sx={{ ml: 2, width: 90 }}
         />
         <TextField
           margin="normal"
           type="number"
-          label="Alignment segments per hit"
+          label="HSPs"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 200 }}
+          sx={{ ml: 2, width: 90 }}
         />
         <FormControlLabel
           control={

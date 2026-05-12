@@ -92,6 +92,9 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
         name: string;
         strand: number;
         source: string;
+        blastCandidateClass: string | undefined;
+        candidateClass: string | undefined;
+        subjectToQueryLengthRatio: number | undefined;
         hspNumber: number;
         hspPart: number;
         queryAaRange: string;

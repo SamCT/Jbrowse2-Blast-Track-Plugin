@@ -15,7 +15,10 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
         if (!hsps.length) {
             return [];
         }
+        const rankingStats = hitRankingStats(hit, queryProteinLength);
+        const blastCandidateClass = candidateClass(rankingStats);
         const hspBlocks = hsps.flatMap((hsp, hspIndex) => hspToCdsBlocks({
+            blastCandidateClass,
             description,
             hitIndex,
             hsp,
@@ -28,6 +31,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
             queryStart,
             queryStrand,
             codingSegments,
+            subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
         }));
         const mismatchMarkers = showMismatchMarkers
             ? hsps.flatMap((hsp, hspIndex) => hspMismatchMarkers({
@@ -65,7 +69,6 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
         const queryCoverage = queryCoveragePct(hsps, queryProteinLength);
         const bestHsp = [...hsps].sort(compareHsps)[0];
         const subjectRange = hspSubjectRange(hsps);
-        const rankingStats = hitRankingStats(hit, queryProteinLength);
         return [
             {
                 uniqueId: hitId(description, hitIndex, idPrefix),
@@ -85,8 +88,8 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 mismatches,
                 gaps,
                 hspCount: hsps.length,
-                candidateClass: candidateClass(rankingStats),
-                blastCandidateClass: candidateClass(rankingStats),
+                candidateClass: blastCandidateClass,
+                blastCandidateClass,
                 subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
                 strand: queryStrand,
                 score: bitScore,
@@ -157,7 +160,7 @@ function getCodingSegments(feature) {
         return segment;
     });
 }
-function hspToCdsBlocks({ description, hitIndex, hsp, hspIndex, idPrefix, refName, queryEnd, queryLength, queryProteinLength, queryStart, queryStrand, codingSegments, }) {
+function hspToCdsBlocks({ blastCandidateClass, description, hitIndex, hsp, hspIndex, idPrefix, refName, queryEnd, queryLength, queryProteinLength, queryStart, queryStrand, codingSegments, subjectToQueryLengthRatio, }) {
     const codingStart = (Math.min(hsp.query_from, hsp.query_to) - 1) * 3;
     const codingEnd = Math.max(hsp.query_from, hsp.query_to) * 3;
     const stats = hspStats(hsp);
@@ -183,6 +186,9 @@ function hspToCdsBlocks({ description, hitIndex, hsp, hspIndex, idPrefix, refNam
             : `HSP ${hspIndex + 1}.${partIndex + 1}`,
         strand: queryStrand,
         source: 'NCBI BLASTP',
+        blastCandidateClass,
+        candidateClass: blastCandidateClass,
+        subjectToQueryLengthRatio,
         hspNumber: hspIndex + 1,
         hspPart: partIndex + 1,
         queryAaRange: `${Math.min(hsp.query_from, hsp.query_to)}-${Math.max(hsp.query_from, hsp.query_to)}`,
@@ -450,12 +456,14 @@ function hitRankingStats(hit, queryProteinLength) {
     const isStrongQueryLengthMatch = queryCoverage >= 98 &&
         identity >= 90 &&
         subjectToQueryLengthRatio <= 1.25;
+    const isLongerSubjectMatch = queryProteinLength > 0 && subjectLength > queryProteinLength;
     return {
         alignedLength: queryCoveredLength(hsps),
         bitScore,
         evalue,
         hasInformativeDescription,
         identity,
+        isLongerSubjectMatch,
         isLikelyCompleteAnnotatedMatch,
         isStrongQueryLengthMatch,
         queryCoverage,
@@ -484,6 +492,9 @@ function hitRankingScore({ bitScore, hasInformativeDescription, identity, isLike
         Math.min(subjectToQueryLengthRatio, 5) * 75);
 }
 function candidateClass(stats) {
+    if (stats.isLongerSubjectMatch) {
+        return 'longer subject match';
+    }
     if (stats.isLikelyCompleteAnnotatedMatch) {
         return 'likely complete annotated homolog';
     }
