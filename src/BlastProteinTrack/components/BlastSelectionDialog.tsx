@@ -513,7 +513,7 @@ export default function BlastSelectionDialog({
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           {mode === 'blastp-genes'
-            ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes. Hits are drawn over each query gene CDS.'
+            ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes, using the longest detected isoform per gene. Hits are drawn over each query gene CDS.'
             : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.'}
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">

@@ -1,9 +1,13 @@
 import { getConf, readConfObject } from '@jbrowse/core/configuration'
 import { getSession } from '@jbrowse/core/util'
 
+import { extractProteinSequence } from './featureSequence'
+import { getBestCdsSet } from './proteinFromCds'
+
 import type { AbstractSessionModel, Feature } from '@jbrowse/core/util'
 import type { AnyConfigurationModel } from '@jbrowse/core/configuration'
 import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
+import type { JsonFeature } from './proteinFromCds'
 
 export interface SelectedRegion {
   assemblyName: string
@@ -177,14 +181,7 @@ function deduplicateBlastableGenes(features: Feature[]) {
   const representatives = new Map<string, Feature>()
 
   for (const feature of sortedFeatures) {
-    if (
-      featureType(feature) !== 'gene' &&
-      geneFeatures.some(gene => isTranscriptOfGene(feature, gene))
-    ) {
-      continue
-    }
-
-    const key = featureGroupKey(feature)
+    const key = featureGroupKey(feature, geneFeatures)
     const existing = representatives.get(key)
     if (!existing || betterBlastRepresentative(feature, existing)) {
       representatives.set(key, feature)
@@ -213,6 +210,12 @@ function isTranscriptOfGene(feature: Feature, gene: Feature) {
 }
 
 function betterBlastRepresentative(candidate: Feature, existing: Feature) {
+  const candidateProteinLength = estimatedProteinLength(candidate)
+  const existingProteinLength = estimatedProteinLength(existing)
+  if (candidateProteinLength !== existingProteinLength) {
+    return candidateProteinLength > existingProteinLength
+  }
+
   const candidatePriority = featureTypePriority(candidate)
   const existingPriority = featureTypePriority(existing)
   if (candidatePriority !== existingPriority) {
@@ -222,23 +225,42 @@ function betterBlastRepresentative(candidate: Feature, existing: Feature) {
 }
 
 function featureTypePriority(feature: Feature) {
-  if (featureType(feature) === 'gene') {
+  if (featureType(feature) === 'mRNA') {
     return 0
   }
-  if (featureType(feature) === 'mRNA') {
+  if (featureType(feature) === 'transcript') {
     return 1
   }
   return 2
 }
 
-function featureGroupKey(feature: Feature) {
+function featureGroupKey(feature: Feature, geneFeatures: Feature[]) {
+  const containingGene =
+    featureType(feature) === 'gene'
+      ? undefined
+      : geneFeatures.find(gene => isTranscriptOfGene(feature, gene))
   const identity = [
     ...geneParentIds(feature),
+    ...(containingGene ? geneIdentityValues(containingGene) : []),
     ...geneIdentityValues(feature),
   ][0]
   return identity
     ? `${featureRefName(feature)}:${identity}`
-    : featureKey(feature)
+    : containingGene
+      ? featureKey(containingGene)
+      : featureKey(feature)
+}
+
+function estimatedProteinLength(feature: Feature) {
+  const embeddedSequence = extractProteinSequence(feature)
+  if (embeddedSequence) {
+    return embeddedSequence.replaceAll(/[^A-Za-z*]/g, '').length
+  }
+
+  const cds = getBestCdsSet(feature.toJSON() as JsonFeature)
+  return Math.floor(
+    cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3,
+  )
 }
 
 function containsFeature(container: Feature, feature: Feature) {

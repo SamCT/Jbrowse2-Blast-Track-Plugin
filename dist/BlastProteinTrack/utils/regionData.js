@@ -1,5 +1,7 @@
 import { getConf, readConfObject } from '@jbrowse/core/configuration';
 import { getSession } from '@jbrowse/core/util';
+import { extractProteinSequence } from './featureSequence';
+import { getBestCdsSet } from './proteinFromCds';
 export async function fetchRegionSequence({ region, view, }) {
     const session = getSession(view);
     const assembly = await session.assemblyManager.waitForAssembly(region.assemblyName);
@@ -90,11 +92,7 @@ function deduplicateBlastableGenes(features) {
     const geneFeatures = sortedFeatures.filter(feature => featureType(feature) === 'gene');
     const representatives = new Map();
     for (const feature of sortedFeatures) {
-        if (featureType(feature) !== 'gene' &&
-            geneFeatures.some(gene => isTranscriptOfGene(feature, gene))) {
-            continue;
-        }
-        const key = featureGroupKey(feature);
+        const key = featureGroupKey(feature, geneFeatures);
         const existing = representatives.get(key);
         if (!existing || betterBlastRepresentative(feature, existing)) {
             representatives.set(key, feature);
@@ -117,6 +115,11 @@ function isTranscriptOfGene(feature, gene) {
     return featureStrand(feature) === featureStrand(gene);
 }
 function betterBlastRepresentative(candidate, existing) {
+    const candidateProteinLength = estimatedProteinLength(candidate);
+    const existingProteinLength = estimatedProteinLength(existing);
+    if (candidateProteinLength !== existingProteinLength) {
+        return candidateProteinLength > existingProteinLength;
+    }
     const candidatePriority = featureTypePriority(candidate);
     const existingPriority = featureTypePriority(existing);
     if (candidatePriority !== existingPriority) {
@@ -125,22 +128,36 @@ function betterBlastRepresentative(candidate, existing) {
     return featureLength(candidate) > featureLength(existing);
 }
 function featureTypePriority(feature) {
-    if (featureType(feature) === 'gene') {
+    if (featureType(feature) === 'mRNA') {
         return 0;
     }
-    if (featureType(feature) === 'mRNA') {
+    if (featureType(feature) === 'transcript') {
         return 1;
     }
     return 2;
 }
-function featureGroupKey(feature) {
+function featureGroupKey(feature, geneFeatures) {
+    const containingGene = featureType(feature) === 'gene'
+        ? undefined
+        : geneFeatures.find(gene => isTranscriptOfGene(feature, gene));
     const identity = [
         ...geneParentIds(feature),
+        ...(containingGene ? geneIdentityValues(containingGene) : []),
         ...geneIdentityValues(feature),
     ][0];
     return identity
         ? `${featureRefName(feature)}:${identity}`
-        : featureKey(feature);
+        : containingGene
+            ? featureKey(containingGene)
+            : featureKey(feature);
+}
+function estimatedProteinLength(feature) {
+    const embeddedSequence = extractProteinSequence(feature);
+    if (embeddedSequence) {
+        return embeddedSequence.replaceAll(/[^A-Za-z*]/g, '').length;
+    }
+    const cds = getBestCdsSet(feature.toJSON());
+    return Math.floor(cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3);
 }
 function containsFeature(container, feature) {
     return (featureRefName(container) === featureRefName(feature) &&
