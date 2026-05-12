@@ -12,9 +12,9 @@ import { queryBlast, queryBlastReports } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
 import { queryGeneFeature } from '../utils/queryGeneFeatures';
 import { fetchBlastableGenes, fetchRegionSequence, regionLabel, } from '../utils/regionData';
-const proteinDatabaseOptions = ['nr', 'nr_clustered_seq'];
+const proteinDatabaseOptions = ['nr', 'nr_cluster_seq'];
 const proteinProgramOptions = ['blastp', 'quick-blastp'];
-const defaultProteinDatabase = 'nr_clustered_seq';
+const defaultProteinDatabase = 'nr_cluster_seq';
 const defaultProteinProgram = 'blastp';
 const defaultBlastnHitLimit = 5;
 const defaultBatchHitLimit = 3;
@@ -281,10 +281,10 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
                                     setBlastDatabase(nextDatabase);
-                                    if (nextDatabase === 'nr_clustered_seq') {
+                                    if (nextDatabase === 'nr_cluster_seq') {
                                         setBlastProgram('blastp');
                                     }
-                                }, sx: { mr: 2, minWidth: 180 }, children: proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_clustered_seq', onChange: event => {
+                                }, sx: { mr: 2, minWidth: 180 }, children: proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq', onChange: event => {
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'

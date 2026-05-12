@@ -72,12 +72,6 @@ async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEma
                     DATABASE: blastDatabase,
                     QUERY: query,
                     HITLIST_SIZE: String(candidateHitLimit(hitLimit)),
-                    ...(blastDatabase === 'nr_clustered_seq'
-                        ? {
-                            CLUSTERED_DB: 'on',
-                            DB_TYPE: 'Experimental Databases',
-                        }
-                        : {}),
                     ...(blastProgram === 'quick-blastp'
                         ? {
                             BLAST_PROGRAMS: 'kmerBlastp',

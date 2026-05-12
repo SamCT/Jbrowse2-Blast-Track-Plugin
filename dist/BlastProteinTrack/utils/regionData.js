@@ -66,7 +66,7 @@ function getRenderedBlastableGenes({ region, view, }) {
             }
         }
     }
-    return [...featuresById.values()].sort((a, b) => a.get('start') - b.get('start'));
+    return deduplicateBlastableGenes([...featuresById.values()]).sort(compareFeatureStart);
 }
 function isRenderedCandidateFeatureTrack(track, assemblyName) {
     if (track.type !== 'FeatureTrack' || !track.configuration) {
@@ -85,18 +85,148 @@ export function regionLabel(region) {
 function isBlastableGeneFeature(feature) {
     return ['gene', 'mRNA', 'transcript'].includes(feature.get('type'));
 }
+function deduplicateBlastableGenes(features) {
+    const sortedFeatures = [...features].sort(compareFeatureStart);
+    const geneFeatures = sortedFeatures.filter(feature => featureType(feature) === 'gene');
+    const representatives = new Map();
+    for (const feature of sortedFeatures) {
+        if (featureType(feature) !== 'gene' &&
+            geneFeatures.some(gene => isTranscriptOfGene(feature, gene))) {
+            continue;
+        }
+        const key = featureGroupKey(feature);
+        const existing = representatives.get(key);
+        if (!existing || betterBlastRepresentative(feature, existing)) {
+            representatives.set(key, feature);
+        }
+    }
+    return [...representatives.values()];
+}
+function isTranscriptOfGene(feature, gene) {
+    if (!containsFeature(gene, feature)) {
+        return false;
+    }
+    if (sharesGeneIdentity(feature, gene)) {
+        return true;
+    }
+    const parentIds = geneParentIds(feature);
+    const geneIds = geneIdentityValues(gene);
+    if (parentIds.length && geneIds.length) {
+        return parentIds.some(parentId => geneIds.includes(parentId));
+    }
+    return featureStrand(feature) === featureStrand(gene);
+}
+function betterBlastRepresentative(candidate, existing) {
+    const candidatePriority = featureTypePriority(candidate);
+    const existingPriority = featureTypePriority(existing);
+    if (candidatePriority !== existingPriority) {
+        return candidatePriority < existingPriority;
+    }
+    return featureLength(candidate) > featureLength(existing);
+}
+function featureTypePriority(feature) {
+    if (featureType(feature) === 'gene') {
+        return 0;
+    }
+    if (featureType(feature) === 'mRNA') {
+        return 1;
+    }
+    return 2;
+}
+function featureGroupKey(feature) {
+    const identity = [
+        ...geneParentIds(feature),
+        ...geneIdentityValues(feature),
+    ][0];
+    return identity
+        ? `${featureRefName(feature)}:${identity}`
+        : featureKey(feature);
+}
+function containsFeature(container, feature) {
+    return (featureRefName(container) === featureRefName(feature) &&
+        featureStart(container) <= featureStart(feature) &&
+        featureEnd(container) >= featureEnd(feature));
+}
+function sharesGeneIdentity(a, b) {
+    const aValues = geneIdentityValues(a);
+    const bValues = geneIdentityValues(b);
+    return aValues.some(value => bValues.includes(value));
+}
+function geneParentIds(feature) {
+    return normalizeFeatureValues(feature.get('Parent') ??
+        feature.get('parent') ??
+        feature.get('parents') ??
+        feature.get('transcript_parent'));
+}
+function geneIdentityValues(feature) {
+    return [
+        feature.id(),
+        ...[
+            'ID',
+            'id',
+            'gene_id',
+            'gene_name',
+            'locus_tag',
+            'Name',
+            'name',
+        ].flatMap(attribute => normalizeFeatureValues(feature.get(attribute))),
+    ]
+        .map(normalizeFeatureIdentity)
+        .filter((value) => Boolean(value));
+}
+function normalizeFeatureValues(value) {
+    if (Array.isArray(value)) {
+        return value.flatMap(normalizeFeatureValues);
+    }
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return [];
+    }
+    return String(value)
+        .split(',')
+        .map(normalizeFeatureIdentity)
+        .filter((entry) => Boolean(entry));
+}
+function normalizeFeatureIdentity(value) {
+    return typeof value === 'string'
+        ? value
+            .replace(/^(gene|mrna|transcript)[:_-]/i, '')
+            .trim()
+            .toLowerCase()
+        : undefined;
+}
+function compareFeatureStart(a, b) {
+    return featureStart(a) - featureStart(b);
+}
+function featureType(feature) {
+    return feature.get('type');
+}
+function featureRefName(feature) {
+    return feature.get('refName');
+}
+function featureStart(feature) {
+    return feature.get('start');
+}
+function featureEnd(feature) {
+    return feature.get('end');
+}
+function featureStrand(feature) {
+    return feature.get('strand') ?? 0;
+}
+function featureLength(feature) {
+    return featureEnd(feature) - featureStart(feature);
+}
 function overlapsRegion(feature, region) {
-    const start = feature.get('start');
-    const end = feature.get('end');
-    const refName = feature.get('refName');
+    const start = featureStart(feature);
+    const end = featureEnd(feature);
+    const refName = featureRefName(feature);
     return refName === region.refName && start < region.end && end > region.start;
 }
 function featureKey(feature) {
     return [
         feature.id(),
-        feature.get('refName'),
-        feature.get('start'),
-        feature.get('end'),
+        featureRefName(feature),
+        featureStart(feature),
+        featureEnd(feature),
     ].join(':');
 }
 function readOptionalConf(config, path) {

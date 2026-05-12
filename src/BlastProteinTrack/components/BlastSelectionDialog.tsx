@@ -38,9 +38,9 @@ import type { SelectedRegion } from '../utils/regionData'
 import type { Feature } from '@jbrowse/core/util'
 import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
 
-const proteinDatabaseOptions = ['nr', 'nr_clustered_seq'] as const
+const proteinDatabaseOptions = ['nr', 'nr_cluster_seq'] as const
 const proteinProgramOptions = ['blastp', 'quick-blastp'] as const
-const defaultProteinDatabase = 'nr_clustered_seq'
+const defaultProteinDatabase = 'nr_cluster_seq'
 const defaultProteinProgram = 'blastp'
 const defaultBlastnHitLimit = 5
 const defaultBatchHitLimit = 3
@@ -399,7 +399,7 @@ export default function BlastSelectionDialog({
               onChange={event => {
                 const nextDatabase = event.target.value
                 setBlastDatabase(nextDatabase)
-                if (nextDatabase === 'nr_clustered_seq') {
+                if (nextDatabase === 'nr_cluster_seq') {
                   setBlastProgram('blastp')
                 }
               }}
@@ -416,7 +416,7 @@ export default function BlastSelectionDialog({
               select
               label="BLAST program"
               value={blastProgram}
-              disabled={blastDatabase === 'nr_clustered_seq'}
+              disabled={blastDatabase === 'nr_cluster_seq'}
               onChange={event => {
                 setBlastProgram(
                   event.target.value as (typeof proteinProgramOptions)[number],

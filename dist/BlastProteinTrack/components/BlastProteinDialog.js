@@ -9,9 +9,9 @@ import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from
 import { getFeatureName } from '../utils/featureSequence';
 import { queryBlast } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
-const blastDatabaseOptions = ['nr', 'nr_clustered_seq'];
+const blastDatabaseOptions = ['nr', 'nr_cluster_seq'];
 const blastProgramOptions = ['blastp', 'quick-blastp'];
-const defaultBlastDatabase = 'nr_clustered_seq';
+const defaultBlastDatabase = 'nr_cluster_seq';
 const defaultBlastProgram = 'blastp';
 const defaultHitLimit = 3;
 const defaultHspLimit = 1;
@@ -93,10 +93,10 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             const nextDatabase = event.target
                                 .value;
                             setBlastDatabase(nextDatabase);
-                            if (nextDatabase === 'nr_clustered_seq') {
+                            if (nextDatabase === 'nr_cluster_seq') {
                                 setBlastProgram('blastp');
                             }
-                        }, sx: { mr: 2, minWidth: 180 }, children: blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_clustered_seq', onChange: event => {
+                        }, sx: { mr: 2, minWidth: 180 }, children: blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq', onChange: event => {
                             setBlastProgram(event.target.value);
                         }, sx: { minWidth: 180 }, children: blastProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                 ? 'quick-blastp (faster NCBI protein BLAST)'

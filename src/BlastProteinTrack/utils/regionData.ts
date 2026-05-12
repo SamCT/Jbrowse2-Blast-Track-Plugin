@@ -137,8 +137,8 @@ function getRenderedBlastableGenes({
     }
   }
 
-  return [...featuresById.values()].sort(
-    (a, b) => (a.get('start') as number) - (b.get('start') as number),
+  return deduplicateBlastableGenes([...featuresById.values()]).sort(
+    compareFeatureStart,
   )
 }
 
@@ -169,19 +169,181 @@ function isBlastableGeneFeature(feature: Feature) {
   return ['gene', 'mRNA', 'transcript'].includes(feature.get('type') as string)
 }
 
+function deduplicateBlastableGenes(features: Feature[]) {
+  const sortedFeatures = [...features].sort(compareFeatureStart)
+  const geneFeatures = sortedFeatures.filter(
+    feature => featureType(feature) === 'gene',
+  )
+  const representatives = new Map<string, Feature>()
+
+  for (const feature of sortedFeatures) {
+    if (
+      featureType(feature) !== 'gene' &&
+      geneFeatures.some(gene => isTranscriptOfGene(feature, gene))
+    ) {
+      continue
+    }
+
+    const key = featureGroupKey(feature)
+    const existing = representatives.get(key)
+    if (!existing || betterBlastRepresentative(feature, existing)) {
+      representatives.set(key, feature)
+    }
+  }
+
+  return [...representatives.values()]
+}
+
+function isTranscriptOfGene(feature: Feature, gene: Feature) {
+  if (!containsFeature(gene, feature)) {
+    return false
+  }
+
+  if (sharesGeneIdentity(feature, gene)) {
+    return true
+  }
+
+  const parentIds = geneParentIds(feature)
+  const geneIds = geneIdentityValues(gene)
+  if (parentIds.length && geneIds.length) {
+    return parentIds.some(parentId => geneIds.includes(parentId))
+  }
+
+  return featureStrand(feature) === featureStrand(gene)
+}
+
+function betterBlastRepresentative(candidate: Feature, existing: Feature) {
+  const candidatePriority = featureTypePriority(candidate)
+  const existingPriority = featureTypePriority(existing)
+  if (candidatePriority !== existingPriority) {
+    return candidatePriority < existingPriority
+  }
+  return featureLength(candidate) > featureLength(existing)
+}
+
+function featureTypePriority(feature: Feature) {
+  if (featureType(feature) === 'gene') {
+    return 0
+  }
+  if (featureType(feature) === 'mRNA') {
+    return 1
+  }
+  return 2
+}
+
+function featureGroupKey(feature: Feature) {
+  const identity = [
+    ...geneParentIds(feature),
+    ...geneIdentityValues(feature),
+  ][0]
+  return identity
+    ? `${featureRefName(feature)}:${identity}`
+    : featureKey(feature)
+}
+
+function containsFeature(container: Feature, feature: Feature) {
+  return (
+    featureRefName(container) === featureRefName(feature) &&
+    featureStart(container) <= featureStart(feature) &&
+    featureEnd(container) >= featureEnd(feature)
+  )
+}
+
+function sharesGeneIdentity(a: Feature, b: Feature) {
+  const aValues = geneIdentityValues(a)
+  const bValues = geneIdentityValues(b)
+  return aValues.some(value => bValues.includes(value))
+}
+
+function geneParentIds(feature: Feature) {
+  return normalizeFeatureValues(
+    feature.get('Parent') ??
+      feature.get('parent') ??
+      feature.get('parents') ??
+      feature.get('transcript_parent'),
+  )
+}
+
+function geneIdentityValues(feature: Feature) {
+  return [
+    feature.id(),
+    ...[
+      'ID',
+      'id',
+      'gene_id',
+      'gene_name',
+      'locus_tag',
+      'Name',
+      'name',
+    ].flatMap(attribute => normalizeFeatureValues(feature.get(attribute))),
+  ]
+    .map(normalizeFeatureIdentity)
+    .filter((value): value is string => Boolean(value))
+}
+
+function normalizeFeatureValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(normalizeFeatureValues)
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return []
+  }
+  return String(value)
+    .split(',')
+    .map(normalizeFeatureIdentity)
+    .filter((entry): entry is string => Boolean(entry))
+}
+
+function normalizeFeatureIdentity(value: unknown) {
+  return typeof value === 'string'
+    ? value
+        .replace(/^(gene|mrna|transcript)[:_-]/i, '')
+        .trim()
+        .toLowerCase()
+    : undefined
+}
+
+function compareFeatureStart(a: Feature, b: Feature) {
+  return featureStart(a) - featureStart(b)
+}
+
+function featureType(feature: Feature) {
+  return feature.get('type') as string
+}
+
+function featureRefName(feature: Feature) {
+  return feature.get('refName') as string
+}
+
+function featureStart(feature: Feature) {
+  return feature.get('start') as number
+}
+
+function featureEnd(feature: Feature) {
+  return feature.get('end') as number
+}
+
+function featureStrand(feature: Feature) {
+  return (feature.get('strand') as number | undefined) ?? 0
+}
+
+function featureLength(feature: Feature) {
+  return featureEnd(feature) - featureStart(feature)
+}
+
 function overlapsRegion(feature: Feature, region: SelectedRegion) {
-  const start = feature.get('start') as number
-  const end = feature.get('end') as number
-  const refName = feature.get('refName') as string
+  const start = featureStart(feature)
+  const end = featureEnd(feature)
+  const refName = featureRefName(feature)
   return refName === region.refName && start < region.end && end > region.start
 }
 
 function featureKey(feature: Feature) {
   return [
     feature.id(),
-    feature.get('refName'),
-    feature.get('start'),
-    feature.get('end'),
+    featureRefName(feature),
+    featureStart(feature),
+    featureEnd(feature),
   ].join(':')
 }
 

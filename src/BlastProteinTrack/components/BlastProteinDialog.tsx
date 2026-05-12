@@ -28,9 +28,9 @@ import { getProteinSequence } from '../utils/proteinFromCds'
 import type { AbstractTrackModel, Feature } from '@jbrowse/core/util'
 import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
 
-const blastDatabaseOptions = ['nr', 'nr_clustered_seq'] as const
+const blastDatabaseOptions = ['nr', 'nr_cluster_seq'] as const
 const blastProgramOptions = ['blastp', 'quick-blastp'] as const
-const defaultBlastDatabase = 'nr_clustered_seq'
+const defaultBlastDatabase = 'nr_cluster_seq'
 const defaultBlastProgram = 'blastp'
 const defaultHitLimit = 3
 const defaultHspLimit = 1
@@ -146,7 +146,7 @@ export default function BlastProteinDialog({
             const nextDatabase = event.target
               .value as (typeof blastDatabaseOptions)[number]
             setBlastDatabase(nextDatabase)
-            if (nextDatabase === 'nr_clustered_seq') {
+            if (nextDatabase === 'nr_cluster_seq') {
               setBlastProgram('blastp')
             }
           }}
@@ -163,7 +163,7 @@ export default function BlastProteinDialog({
           select
           label="BLAST program"
           value={blastProgram}
-          disabled={blastDatabase === 'nr_clustered_seq'}
+          disabled={blastDatabase === 'nr_cluster_seq'}
           onChange={event => {
             setBlastProgram(
               event.target.value as (typeof blastProgramOptions)[number],
