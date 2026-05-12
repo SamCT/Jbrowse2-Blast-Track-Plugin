@@ -6,7 +6,7 @@ export async function fetchRegionSequence({ region, view, }) {
     if (!assembly) {
         throw new Error(`Assembly not found: ${region.assemblyName}`);
     }
-    const canonicalRefName = assembly.getCanonicalRefName2(region.refName);
+    const sequenceRefName = getSequenceRefName(assembly, region.refName);
     const sessionId = 'blast-track-region-sequence';
     const features = (await session.rpcManager.call(sessionId, 'CoreGetFeatures', {
         adapterConfig: getConf(assembly, ['sequence', 'adapter']),
@@ -14,7 +14,7 @@ export async function fetchRegionSequence({ region, view, }) {
         regions: [
             {
                 ...region,
-                refName: assembly.getSeqAdapterRefName(canonicalRefName),
+                refName: sequenceRefName,
             },
         ],
     }));
@@ -22,6 +22,24 @@ export async function fetchRegionSequence({ region, view, }) {
         .map(feature => feature.get('seq'))
         .filter((seq) => typeof seq === 'string')
         .join('');
+}
+function getSequenceRefName(assembly, refName) {
+    const canonicalRefName = callAssemblyRefNameMethod(assembly, 'getCanonicalRefName2', refName) ??
+        callAssemblyRefNameMethod(assembly, 'getCanonicalRefName', refName) ??
+        refName;
+    return (callAssemblyRefNameMethod(assembly, 'getSeqAdapterRefName', canonicalRefName) ?? canonicalRefName);
+}
+function callAssemblyRefNameMethod(assembly, method, refName) {
+    const mapper = assembly[method];
+    if (typeof mapper !== 'function') {
+        return undefined;
+    }
+    try {
+        return mapper.call(assembly, refName) || undefined;
+    }
+    catch {
+        return undefined;
+    }
 }
 export async function fetchBlastableGenes({ region, view, }) {
     return getRenderedBlastableGenes({ region, view });

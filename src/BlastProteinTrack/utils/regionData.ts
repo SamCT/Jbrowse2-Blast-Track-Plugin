@@ -12,6 +12,12 @@ export interface SelectedRegion {
   end: number
 }
 
+interface AssemblyRefNameApi {
+  getCanonicalRefName?: (refName: string) => string | undefined
+  getCanonicalRefName2?: (refName: string) => string | undefined
+  getSeqAdapterRefName?: (refName: string) => string | undefined
+}
+
 export async function fetchRegionSequence({
   region,
   view,
@@ -27,7 +33,7 @@ export async function fetchRegionSequence({
     throw new Error(`Assembly not found: ${region.assemblyName}`)
   }
 
-  const canonicalRefName = assembly.getCanonicalRefName2(region.refName)
+  const sequenceRefName = getSequenceRefName(assembly, region.refName)
   const sessionId = 'blast-track-region-sequence'
   const features = (await session.rpcManager.call(sessionId, 'CoreGetFeatures', {
     adapterConfig: getConf(assembly, ['sequence', 'adapter']),
@@ -35,7 +41,7 @@ export async function fetchRegionSequence({
     regions: [
       {
         ...region,
-        refName: assembly.getSeqAdapterRefName(canonicalRefName),
+        refName: sequenceRefName,
       },
     ],
   })) as Feature[]
@@ -44,6 +50,37 @@ export async function fetchRegionSequence({
     .map(feature => feature.get('seq'))
     .filter((seq): seq is string => typeof seq === 'string')
     .join('')
+}
+
+function getSequenceRefName(assembly: AssemblyRefNameApi, refName: string) {
+  const canonicalRefName =
+    callAssemblyRefNameMethod(assembly, 'getCanonicalRefName2', refName) ??
+    callAssemblyRefNameMethod(assembly, 'getCanonicalRefName', refName) ??
+    refName
+
+  return (
+    callAssemblyRefNameMethod(
+      assembly,
+      'getSeqAdapterRefName',
+      canonicalRefName,
+    ) ?? canonicalRefName
+  )
+}
+
+function callAssemblyRefNameMethod(
+  assembly: AssemblyRefNameApi,
+  method: keyof AssemblyRefNameApi,
+  refName: string,
+) {
+  const mapper = assembly[method]
+  if (typeof mapper !== 'function') {
+    return undefined
+  }
+  try {
+    return mapper.call(assembly, refName) || undefined
+  } catch {
+    return undefined
+  }
 }
 
 export async function fetchBlastableGenes({
