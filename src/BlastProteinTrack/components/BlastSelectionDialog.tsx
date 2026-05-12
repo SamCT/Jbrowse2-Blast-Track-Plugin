@@ -535,8 +535,9 @@ export default function BlastSelectionDialog({
             : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.'}
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
-          Mismatch and gap counts are kept in feature details. Red per-position
-          ticks are optional because dense alignments can be difficult to read.
+          Mismatch and gap counts are kept in feature details. Red mismatch and
+          yellow gap ticks are optional because dense alignments can be
+          difficult to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           BlastTrack batches selected genes into one multi-FASTA request, spaces

@@ -263,8 +263,8 @@ export default function BlastProteinDialog({
         <Typography sx={{ mt: 1 }} variant="body2">
           BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are
           aligned HSP segments. Mismatch and gap counts remain available in
-          feature details; red per-residue ticks are optional because dense
-          alignments can become hard to read.
+          feature details; red mismatch and yellow gap ticks are optional
+          because dense alignments can become hard to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and
