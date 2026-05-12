@@ -33,8 +33,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [proteinSequence, setProteinSequence] = useState('');
     const [sequenceLoading, setSequenceLoading] = useState(false);
     const [running, setRunning] = useState(false);
-    const [appendToExistingTrack, setAppendToExistingTrack] = useState(appendableBlastTracks.length > 0);
-    const [appendChoiceTouched, setAppendChoiceTouched] = useState(false);
+    const [appendToExistingTrack, setAppendToExistingTrack] = useState(false);
     const appendTargetTrack = appendableBlastTracks[0];
     useEffect(() => {
         let active = true;
@@ -60,11 +59,6 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             active = false;
         };
     }, [feature, view]);
-    useEffect(() => {
-        if (appendTargetTrack && !appendChoiceTouched) {
-            setAppendToExistingTrack(true);
-        }
-    }, [appendChoiceTouched, appendTargetTrack?.trackId]);
     async function runBlast() {
         if (!proteinSequence) {
             setError(new Error('No protein sequence was found on this feature. Add protein_sequence, proteinSequence, translation, or seq to the feature attributes, or wire CDS translation extraction into featureSequence.ts.'));
@@ -135,7 +129,6 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                         }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
-                                setAppendChoiceTouched(true);
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing BLASTP track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
                             void runBlast();
