@@ -370,10 +370,6 @@ function selectDisplayedHits(rankedHits, hitLimit) {
         selectedSubjectGeneKeys.add(hit.stats.subjectGeneKey);
         selected.push(hit);
     }
-    add(rankedHits.find(({ stats }) => stats.isLikelyCompleteAnnotatedMatch));
-    if (hitLimit > 1) {
-        add(rankedHits.find(({ stats }) => stats.isStrongQueryLengthMatch));
-    }
     for (const rankedHit of rankedHits) {
         add(rankedHit);
     }
@@ -457,20 +453,27 @@ function hitRankingStats(hit, queryProteinLength) {
         identity >= 90 &&
         subjectToQueryLengthRatio <= 1.25;
     const isLongerSubjectMatch = queryProteinLength > 0 && subjectLength > queryProteinLength;
+    const isHighConfidenceLongerSubjectMatch = isLongerSubjectMatch &&
+        queryCoverage >= 50 &&
+        identity >= 30 &&
+        evalue <= 1e-5;
     return {
         alignedLength: queryCoveredLength(hsps),
         bitScore,
         evalue,
         hasInformativeDescription,
         identity,
+        isHighConfidenceLongerSubjectMatch,
         isLongerSubjectMatch,
         isLikelyCompleteAnnotatedMatch,
         isStrongQueryLengthMatch,
         queryCoverage,
         rankingScore: hitRankingScore({
             bitScore,
+            evalue,
             hasInformativeDescription,
             identity,
+            isHighConfidenceLongerSubjectMatch,
             isLikelyCompleteAnnotatedMatch,
             isStrongQueryLengthMatch,
             queryCoverage,
@@ -482,14 +485,25 @@ function hitRankingStats(hit, queryProteinLength) {
         subjectToQueryLengthRatio,
     };
 }
-function hitRankingScore({ bitScore, hasInformativeDescription, identity, isLikelyCompleteAnnotatedMatch, isStrongQueryLengthMatch, queryCoverage, subjectToQueryLengthRatio, }) {
-    return ((isLikelyCompleteAnnotatedMatch ? 10_000 : 0) +
-        (isStrongQueryLengthMatch ? 500 : 0) +
-        (hasInformativeDescription ? 1_000 : -300) +
-        queryCoverage * 8 +
+function hitRankingScore({ bitScore, evalue, hasInformativeDescription, identity, isHighConfidenceLongerSubjectMatch, isLikelyCompleteAnnotatedMatch, isStrongQueryLengthMatch, queryCoverage, subjectToQueryLengthRatio, }) {
+    return (bitScore * 10 +
+        evalueRankScore(evalue) +
+        queryCoverage * 5 +
         identity * 2 +
-        bitScore +
-        Math.min(subjectToQueryLengthRatio, 5) * 75);
+        (isLikelyCompleteAnnotatedMatch ? 1_500 : 0) +
+        (isHighConfidenceLongerSubjectMatch ? 1_000 : 0) +
+        (isStrongQueryLengthMatch ? 500 : 0) +
+        (hasInformativeDescription ? 300 : -100) +
+        Math.min(subjectToQueryLengthRatio, 5) * 50);
+}
+function evalueRankScore(evalue) {
+    if (evalue <= 0) {
+        return 600;
+    }
+    if (!Number.isFinite(evalue)) {
+        return 0;
+    }
+    return Math.min(600, Math.max(0, -Math.log10(evalue) * 20));
 }
 function candidateClass(stats) {
     if (stats.isLongerSubjectMatch) {
