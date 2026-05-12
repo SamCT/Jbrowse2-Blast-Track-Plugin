@@ -43,7 +43,7 @@ const proteinProgramOptions = ['blastp', 'quick-blastp'] as const
 const defaultBlastnHitLimit = 5
 const defaultBatchHitLimit = 3
 const defaultHspLimit = 3
-const defaultMaxGenes = 10
+const defaultMaxGenes = 3
 const defaultMaxRegionBp = 50_000
 const highVolumeGeneWarningThreshold = 10
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
@@ -444,12 +444,12 @@ export default function BlastSelectionDialog({
             <TextField
               margin="normal"
               type="number"
-              label="Max genes to BLAST"
+              label="Genes to BLAST"
               value={maxGenes}
               onChange={event => {
                 setMaxGenes(Number(event.target.value))
               }}
-              sx={{ ml: 2, width: 120 }}
+              sx={{ ml: 2, width: 130 }}
             />
           </>
         ) : (
@@ -480,24 +480,24 @@ export default function BlastSelectionDialog({
           type="number"
           label={
             mode === 'blastp-genes'
-              ? 'Matches per gene'
-              : 'Number of matches'
+              ? 'Top BLAST hits per gene'
+              : 'Top BLAST hits'
           }
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 130 }}
+          sx={{ ml: 2, width: mode === 'blastp-genes' ? 190 : 150 }}
         />
         <TextField
           margin="normal"
           type="number"
-          label="Segments per match"
+          label="Alignment segments per hit"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 140 }}
+          sx={{ ml: 2, width: 200 }}
         />
         <FormControlLabel
           control={
