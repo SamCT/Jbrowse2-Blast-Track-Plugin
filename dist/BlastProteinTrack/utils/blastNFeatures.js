@@ -32,6 +32,12 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
         const title = description.title?.trim();
         const totalAlignLength = sum(hsps, 'align_len');
         const totalIdentical = sum(hsps, 'identity');
+        const identity = weightedPercent(hsps, 'identity');
+        const mismatches = totalMismatches(hsps);
+        const gaps = sum(hsps, 'gaps');
+        const evalue = bestEvalue(hsps);
+        const bitScore = bestBitScore(hsps);
+        const queryCoverage = queryCoveragePct(hsps, queryLength);
         const bestHsp = [...hsps].sort(compareHsps)[0];
         const subjectRange = hspSubjectRange(hsps);
         return [
@@ -42,14 +48,22 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
                 end,
                 type: 'gene',
                 name: label,
-                id: label,
-                gene_id: label,
                 hitRank: hitIndex + 1,
+                identity,
+                percentIdentity: identity,
+                queryCoverage,
+                evalue,
+                bitScore,
+                mismatches,
+                gaps,
+                hspCount: hsps.length,
                 strand: hspStrand(bestHsp),
-                score: bestBitScore(hsps),
+                score: bitScore,
                 source: 'NCBI BLASTN',
                 blastProgram: 'blastn',
                 coordinateProjection: 'Nucleotide HSP query coordinates projected over selected region',
+                id: label,
+                gene_id: label,
                 queryRegion: `${region.refName}:${region.start + 1}-${region.end}`,
                 queryLengthBp: queryLength,
                 accession: description.accession,
@@ -58,16 +72,8 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
                 note: title,
                 scientificName: description.sciname,
                 taxid: description.taxid,
-                identity: weightedPercent(hsps, 'identity'),
-                percentIdentity: weightedPercent(hsps, 'identity'),
-                mismatches: totalMismatches(hsps),
-                gaps: sum(hsps, 'gaps'),
-                evalue: bestEvalue(hsps),
-                bitScore: bestBitScore(hsps),
                 totalAlignedNucleotides: totalAlignLength,
                 identicalNucleotides: totalIdentical,
-                queryCoverage: queryCoveragePct(hsps, queryLength),
-                hspCount: hsps.length,
                 bestHspIdentity: bestHsp ? hspStats(bestHsp).identity : undefined,
                 bestHspEvalue: bestHsp?.evalue,
                 bestHspBitScore: bestHsp?.bit_score,
