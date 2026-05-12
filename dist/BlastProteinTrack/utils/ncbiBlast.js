@@ -2,7 +2,6 @@ const blastToolName = 'BlastTrack';
 const submitIntervalMs = 10_000;
 const initialPollSeconds = 30;
 const waitingPollIntervalSeconds = 30;
-const minimumCandidateHits = 30;
 const maximumCandidateHits = 100;
 let submitQueue = Promise.resolve();
 let lastSubmitStartedAt = 0;
@@ -157,7 +156,7 @@ function blastParams({ contactEmail, params, }) {
     });
 }
 function candidateHitLimit(displayHitLimit) {
-    return Math.min(maximumCandidateHits, Math.max(displayHitLimit, minimumCandidateHits, displayHitLimit * 10));
+    return Math.min(maximumCandidateHits, Math.max(1, Math.floor(displayHitLimit)));
 }
 async function textFetch(url, init) {
     const response = await fetch(url, init);

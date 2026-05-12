@@ -4,7 +4,6 @@ const blastToolName = 'BlastTrack'
 const submitIntervalMs = 10_000
 const initialPollSeconds = 30
 const waitingPollIntervalSeconds = 30
-const minimumCandidateHits = 30
 const maximumCandidateHits = 100
 
 let submitQueue = Promise.resolve()
@@ -261,10 +260,7 @@ function blastParams({
 }
 
 function candidateHitLimit(displayHitLimit: number) {
-  return Math.min(
-    maximumCandidateHits,
-    Math.max(displayHitLimit, minimumCandidateHits, displayHitLimit * 10),
-  )
+  return Math.min(maximumCandidateHits, Math.max(1, Math.floor(displayHitLimit)))
 }
 
 async function textFetch(url: string, init?: RequestInit) {
