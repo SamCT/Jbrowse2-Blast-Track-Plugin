@@ -446,12 +446,13 @@ export default function BlastSelectionDialog({
             <TextField
               margin="normal"
               type="number"
-              label="Genes"
+              label="Query genes"
+              helperText="Selected genes to submit"
               value={maxGenes}
               onChange={event => {
                 setMaxGenes(Number(event.target.value))
               }}
-              sx={{ ml: 2, width: 100 }}
+              sx={{ ml: 2, width: 150 }}
             />
           </>
         ) : (
@@ -480,22 +481,28 @@ export default function BlastSelectionDialog({
         <TextField
           margin="normal"
           type="number"
-          label="Hits"
+          label={mode === 'blastp-genes' ? 'Hits per gene' : 'Hits'}
+          helperText={
+            mode === 'blastp-genes'
+              ? 'BLAST subject hits per query gene'
+              : 'BLAST subject hits for this region'
+          }
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 90 }}
+          sx={{ ml: 2, width: mode === 'blastp-genes' ? 190 : 180 }}
         />
         <TextField
           margin="normal"
           type="number"
-          label="HSPs"
+          label="HSPs per hit"
+          helperText="Alignment segments inside each hit"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))
           }}
-          sx={{ ml: 2, width: 90 }}
+          sx={{ ml: 2, width: 210 }}
         />
         <FormControlLabel
           control={

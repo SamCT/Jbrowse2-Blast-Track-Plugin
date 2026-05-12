@@ -299,17 +299,19 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'
-                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Genes", value: maxGenes, onChange: event => {
+                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Query genes", helperText: "Selected genes to submit", value: maxGenes, onChange: event => {
                                     setMaxGenes(Number(event.target.value));
-                                }, sx: { ml: 2, width: 100 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
+                                }, sx: { ml: 2, width: 150 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
                                     setBlastDatabase(event.target.value);
                                 }, sx: { mr: 2, minWidth: 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max region bp", value: maxRegionBp, onChange: event => {
                                     setMaxRegionBp(Number(event.target.value));
-                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: "Hits", value: hitLimit, onChange: event => {
+                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: mode === 'blastp-genes' ? 'Hits per gene' : 'Hits', helperText: mode === 'blastp-genes'
+                            ? 'BLAST subject hits per query gene'
+                            : 'BLAST subject hits for this region', value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 90 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs per hit", helperText: "Alignment segments inside each hit", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 90 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
+                        }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendChoiceTouched(true);

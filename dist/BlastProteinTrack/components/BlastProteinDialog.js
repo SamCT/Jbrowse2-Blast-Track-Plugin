@@ -128,11 +128,11 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             setBlastProgram(event.target.value);
                         }, sx: { minWidth: 180 }, children: blastProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                 ? 'quick-blastp (faster NCBI protein BLAST)'
-                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Hits", value: hitLimit, onChange: event => {
+                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Hits per gene", helperText: "BLAST subject hits for this query gene", value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 90 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: 190 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs per hit", helperText: "Alignment segments inside each hit", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 90 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
+                        }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendChoiceTouched(true);
