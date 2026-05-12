@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui'
 import { getSession } from '@jbrowse/core/util'
@@ -63,14 +63,18 @@ export default function BlastSelectionDialog({
   regions: SelectedRegion[]
 }) {
   const appendBlastProgram = mode === 'blastn-region' ? 'blastn' : 'blastp'
-  const appendableBlastTracks =
-    regions.length === 1
-      ? getAppendableBlastTracks({
-          assemblyName: regions[0].assemblyName,
-          blastProgram: appendBlastProgram,
-          view: model,
-        })
-      : []
+  const appendAssemblyName = regions.length === 1 ? regions[0].assemblyName : ''
+  const appendableBlastTracks = useMemo(
+    () =>
+      appendAssemblyName
+        ? getAppendableBlastTracks({
+            assemblyName: appendAssemblyName,
+            blastProgram: appendBlastProgram,
+            view: model,
+          })
+        : [],
+    [appendAssemblyName, appendBlastProgram, model],
+  )
   const [blastDatabase, setBlastDatabase] = useState(
     mode === 'blastn-region' ? 'nt' : defaultProteinDatabase,
   )

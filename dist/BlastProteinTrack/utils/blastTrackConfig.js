@@ -138,25 +138,25 @@ function isAppendableBlastTrack(track, assemblyName, blastProgram) {
     if (stringConf(track, 'type') !== 'FeatureTrack') {
         return false;
     }
-    const adapter = objectConf(track, 'adapter');
-    if (adapter?.type !== 'FromConfigAdapter') {
+    const category = arrayConf(track, 'category') ?? [];
+    const metadata = objectConf(track, 'metadata');
+    const name = stringConf(track, 'name').toUpperCase();
+    const isBlastTrack = metadata?.blastTrack === true ||
+        category.includes('BLAST') ||
+        name.includes('BLAST');
+    const sameProgram = metadata?.blastProgram === blastProgram ||
+        name.includes(blastProgram.toUpperCase());
+    if (!isBlastTrack || !sameProgram) {
         return false;
     }
     const assemblyNames = arrayConf(track, 'assemblyNames') ?? [];
     if (!assemblyNames.includes(assemblyName)) {
         return false;
     }
-    const category = arrayConf(track, 'category') ?? [];
-    const metadata = objectConf(track, 'metadata');
-    const name = stringConf(track, 'name').toUpperCase();
-    const features = featuresFromTrack(track);
-    const featureProgram = features.find(feature => typeof feature.blastProgram === 'string')?.blastProgram;
-    const isBlastTrack = metadata?.blastTrack === true ||
-        category.includes('BLAST') ||
-        name.includes('BLAST');
-    const sameProgram = metadata?.blastProgram === blastProgram ||
-        featureProgram === blastProgram ||
-        name.includes(blastProgram.toUpperCase());
+    const adapter = objectConf(track, 'adapter');
+    if (adapter?.type !== 'FromConfigAdapter') {
+        return false;
+    }
     return isBlastTrack && sameProgram;
 }
 function featuresFromTrack(track) {

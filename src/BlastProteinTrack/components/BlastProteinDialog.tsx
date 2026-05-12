@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui'
 import { getContainingView } from '@jbrowse/core/util'
@@ -49,11 +49,15 @@ export default function BlastProteinDialog({
   const featureName = getFeatureName(feature)
   const assemblyName =
     view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? ''
-  const appendableBlastTracks = getAppendableBlastTracks({
-    assemblyName,
-    blastProgram: 'blastp',
-    view,
-  })
+  const appendableBlastTracks = useMemo(
+    () =>
+      getAppendableBlastTracks({
+        assemblyName,
+        blastProgram: 'blastp',
+        view,
+      }),
+    [assemblyName, view],
+  )
   const [blastDatabase, setBlastDatabase] =
     useState<(typeof blastDatabaseOptions)[number]>(defaultBlastDatabase)
   const [blastProgram, setBlastProgram] =
@@ -63,52 +67,25 @@ export default function BlastProteinDialog({
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState<unknown>()
-  const [proteinSequence, setProteinSequence] = useState('')
-  const [sequenceLoading, setSequenceLoading] = useState(false)
+  const [proteinLength, setProteinLength] = useState<number>()
   const [running, setRunning] = useState(false)
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
 
-  useEffect(() => {
-    let active = true
-    setSequenceLoading(true)
-    getProteinSequence({ feature, view })
-      .then(sequence => {
-        if (active) {
-          setProteinSequence(sequence ?? '')
-        }
-      })
-      .catch(e => {
-        if (active) {
-          setError(e)
-          setProteinSequence('')
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSequenceLoading(false)
-        }
-      })
-
-    return () => {
-      active = false
-    }
-  }, [feature, view])
-
   async function runBlast() {
-    if (!proteinSequence) {
-      setError(
-        new Error(
-          'No protein sequence was found on this feature. Add protein_sequence, proteinSequence, translation, or seq to the feature attributes, or wire CDS translation extraction into featureSequence.ts.',
-        ),
-      )
-      return
-    }
-
     try {
       setRunning(true)
       setError(undefined)
-      const cleanedSequence = proteinSequence.replaceAll(/[^A-Za-z*]/g, '')
+      setProgress(`Preparing protein sequence for ${featureName}...`)
+      const cleanedSequence = cleanProteinSequence(
+        (await getProteinSequence({ feature, view })) ?? '',
+      )
+      setProteinLength(cleanedSequence.length)
+      if (!cleanedSequence) {
+        throw new Error(
+          'No protein sequence was found on this feature. Add protein_sequence, proteinSequence, translation, or seq to the feature attributes, or wire CDS translation extraction into featureSequence.ts.',
+        )
+      }
       const sanitizedHitLimit = sanitizeHitLimit(hitLimit)
       const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
       const { hits, rid } = await queryBlast({
@@ -252,7 +229,10 @@ export default function BlastProteinDialog({
           Query feature: {featureName}
         </Typography>
         <Typography variant="body2">
-          Protein length: {sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`}
+          Protein length:{' '}
+          {proteinLength === undefined
+            ? 'detected when submitted'
+            : `${proteinLength} aa`}
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are
@@ -270,7 +250,7 @@ export default function BlastProteinDialog({
       </DialogContent>
       <DialogActions>
         <Button
-          disabled={running || sequenceLoading || !proteinSequence}
+          disabled={running}
           onClick={() => {
             void runBlast()
           }}
@@ -298,4 +278,8 @@ function sanitizeHspLimit(value: number) {
     return defaultHspLimit
   }
   return Math.min(100, Math.max(1, Math.floor(value)))
+}
+
+function cleanProteinSequence(sequence: string) {
+  return sequence.replaceAll(/[^A-Za-z*]/g, '').toUpperCase()
 }

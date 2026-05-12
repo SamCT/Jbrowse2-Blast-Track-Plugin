@@ -1,5 +1,5 @@
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getSession } from '@jbrowse/core/util';
 import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
@@ -24,13 +24,14 @@ const highVolumeGeneWarningThreshold = 10;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastSelectionDialog({ handleClose, mode, model, regions, }) {
     const appendBlastProgram = mode === 'blastn-region' ? 'blastn' : 'blastp';
-    const appendableBlastTracks = regions.length === 1
+    const appendAssemblyName = regions.length === 1 ? regions[0].assemblyName : '';
+    const appendableBlastTracks = useMemo(() => appendAssemblyName
         ? getAppendableBlastTracks({
-            assemblyName: regions[0].assemblyName,
+            assemblyName: appendAssemblyName,
             blastProgram: appendBlastProgram,
             view: model,
         })
-        : [];
+        : [], [appendAssemblyName, appendBlastProgram, model]);
     const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : defaultProteinDatabase);
     const [blastProgram, setBlastProgram] = useState(defaultProteinProgram);
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);

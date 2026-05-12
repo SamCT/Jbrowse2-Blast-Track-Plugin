@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getContainingView } from '@jbrowse/core/util';
 import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
@@ -20,11 +20,11 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const view = getContainingView(model);
     const featureName = getFeatureName(feature);
     const assemblyName = view.assemblyNames?.[0] ?? feature.get('assemblyName') ?? '';
-    const appendableBlastTracks = getAppendableBlastTracks({
+    const appendableBlastTracks = useMemo(() => getAppendableBlastTracks({
         assemblyName,
         blastProgram: 'blastp',
         view,
-    });
+    }), [assemblyName, view]);
     const [blastDatabase, setBlastDatabase] = useState(defaultBlastDatabase);
     const [blastProgram, setBlastProgram] = useState(defaultBlastProgram);
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
@@ -32,44 +32,20 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
     const [progress, setProgress] = useState('');
     const [error, setError] = useState();
-    const [proteinSequence, setProteinSequence] = useState('');
-    const [sequenceLoading, setSequenceLoading] = useState(false);
+    const [proteinLength, setProteinLength] = useState();
     const [running, setRunning] = useState(false);
     const [appendToExistingTrack, setAppendToExistingTrack] = useState(false);
     const appendTargetTrack = appendableBlastTracks[0];
-    useEffect(() => {
-        let active = true;
-        setSequenceLoading(true);
-        getProteinSequence({ feature, view })
-            .then(sequence => {
-            if (active) {
-                setProteinSequence(sequence ?? '');
-            }
-        })
-            .catch(e => {
-            if (active) {
-                setError(e);
-                setProteinSequence('');
-            }
-        })
-            .finally(() => {
-            if (active) {
-                setSequenceLoading(false);
-            }
-        });
-        return () => {
-            active = false;
-        };
-    }, [feature, view]);
     async function runBlast() {
-        if (!proteinSequence) {
-            setError(new Error('No protein sequence was found on this feature. Add protein_sequence, proteinSequence, translation, or seq to the feature attributes, or wire CDS translation extraction into featureSequence.ts.'));
-            return;
-        }
         try {
             setRunning(true);
             setError(undefined);
-            const cleanedSequence = proteinSequence.replaceAll(/[^A-Za-z*]/g, '');
+            setProgress(`Preparing protein sequence for ${featureName}...`);
+            const cleanedSequence = cleanProteinSequence((await getProteinSequence({ feature, view })) ?? '');
+            setProteinLength(cleanedSequence.length);
+            if (!cleanedSequence) {
+                throw new Error('No protein sequence was found on this feature. Add protein_sequence, proteinSequence, translation, or seq to the feature attributes, or wire CDS translation extraction into featureSequence.ts.');
+            }
             const sanitizedHitLimit = sanitizeHitLimit(hitLimit);
             const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
             const { hits, rid } = await queryBlast({
@@ -132,7 +108,9 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendToExistingTrack(event.target.checked);
-                            } }), label: `Append to existing BLASTP track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length: ", sequenceLoading ? 'loading...' : `${proteinSequence.length} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running || sequenceLoading || !proteinSequence, onClick: () => {
+                            } }), label: `Append to existing BLASTP track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length:", ' ', proteinLength === undefined
+                                ? 'detected when submitted'
+                                : `${proteinLength} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }
@@ -147,4 +125,7 @@ function sanitizeHspLimit(value) {
         return defaultHspLimit;
     }
     return Math.min(100, Math.max(1, Math.floor(value)));
+}
+function cleanProteinSequence(sequence) {
+    return sequence.replaceAll(/[^A-Za-z*]/g, '').toUpperCase();
 }
