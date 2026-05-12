@@ -40,6 +40,8 @@ import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
 
 const proteinDatabaseOptions = ['nr', 'nr_clustered_seq'] as const
 const proteinProgramOptions = ['blastp', 'quick-blastp'] as const
+const defaultProteinDatabase = 'nr_clustered_seq'
+const defaultProteinProgram = 'blastp'
 const defaultBlastnHitLimit = 5
 const defaultBatchHitLimit = 3
 const defaultHspLimit = 3
@@ -71,10 +73,10 @@ export default function BlastSelectionDialog({
         })
       : []
   const [blastDatabase, setBlastDatabase] = useState(
-    mode === 'blastn-region' ? 'nt' : 'nr',
+    mode === 'blastn-region' ? 'nt' : defaultProteinDatabase,
   )
   const [blastProgram, setBlastProgram] =
-    useState<(typeof proteinProgramOptions)[number]>('quick-blastp')
+    useState<(typeof proteinProgramOptions)[number]>(defaultProteinProgram)
   const [hitLimit, setHitLimit] = useState(
     mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit,
   )

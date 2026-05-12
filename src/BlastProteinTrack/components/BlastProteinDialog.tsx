@@ -30,6 +30,8 @@ import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
 
 const blastDatabaseOptions = ['nr', 'nr_clustered_seq'] as const
 const blastProgramOptions = ['blastp', 'quick-blastp'] as const
+const defaultBlastDatabase = 'nr_clustered_seq'
+const defaultBlastProgram = 'blastp'
 const defaultHitLimit = 3
 const defaultHspLimit = 3
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
@@ -53,9 +55,9 @@ export default function BlastProteinDialog({
     view,
   })
   const [blastDatabase, setBlastDatabase] =
-    useState<(typeof blastDatabaseOptions)[number]>('nr')
+    useState<(typeof blastDatabaseOptions)[number]>(defaultBlastDatabase)
   const [blastProgram, setBlastProgram] =
-    useState<(typeof blastProgramOptions)[number]>('quick-blastp')
+    useState<(typeof blastProgramOptions)[number]>(defaultBlastProgram)
   const [hitLimit, setHitLimit] = useState(defaultHitLimit)
   const [hspLimit, setHspLimit] = useState(defaultHspLimit)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)

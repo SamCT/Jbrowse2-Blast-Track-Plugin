@@ -11,6 +11,8 @@ import { queryBlast } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
 const blastDatabaseOptions = ['nr', 'nr_clustered_seq'];
 const blastProgramOptions = ['blastp', 'quick-blastp'];
+const defaultBlastDatabase = 'nr_clustered_seq';
+const defaultBlastProgram = 'blastp';
 const defaultHitLimit = 3;
 const defaultHspLimit = 3;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
@@ -23,8 +25,8 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
         blastProgram: 'blastp',
         view,
     });
-    const [blastDatabase, setBlastDatabase] = useState('nr');
-    const [blastProgram, setBlastProgram] = useState('quick-blastp');
+    const [blastDatabase, setBlastDatabase] = useState(defaultBlastDatabase);
+    const [blastProgram, setBlastProgram] = useState(defaultBlastProgram);
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);

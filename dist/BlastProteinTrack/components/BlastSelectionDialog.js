@@ -14,6 +14,8 @@ import { queryGeneFeature } from '../utils/queryGeneFeatures';
 import { fetchBlastableGenes, fetchRegionSequence, regionLabel, } from '../utils/regionData';
 const proteinDatabaseOptions = ['nr', 'nr_clustered_seq'];
 const proteinProgramOptions = ['blastp', 'quick-blastp'];
+const defaultProteinDatabase = 'nr_clustered_seq';
+const defaultProteinProgram = 'blastp';
 const defaultBlastnHitLimit = 5;
 const defaultBatchHitLimit = 3;
 const defaultHspLimit = 3;
@@ -30,8 +32,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             view: model,
         })
         : [];
-    const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : 'nr');
-    const [blastProgram, setBlastProgram] = useState('quick-blastp');
+    const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : defaultProteinDatabase);
+    const [blastProgram, setBlastProgram] = useState(defaultProteinProgram);
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
