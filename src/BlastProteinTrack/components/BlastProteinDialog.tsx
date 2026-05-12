@@ -33,7 +33,7 @@ const blastProgramOptions = ['blastp', 'quick-blastp'] as const
 const defaultBlastDatabase = 'nr_clustered_seq'
 const defaultBlastProgram = 'blastp'
 const defaultHitLimit = 3
-const defaultHspLimit = 3
+const defaultHspLimit = 1
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
 
 export default function BlastProteinDialog({
@@ -217,7 +217,7 @@ export default function BlastProteinDialog({
           margin="normal"
           type="number"
           label="Alignment segments"
-          helperText="Best aligned pieces to draw inside each match"
+          helperText="1 = best segment, most sensitive; 3 = looser and may draw less accurate segments"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))

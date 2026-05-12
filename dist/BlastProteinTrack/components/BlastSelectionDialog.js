@@ -18,8 +18,7 @@ const defaultProteinDatabase = 'nr_clustered_seq';
 const defaultProteinProgram = 'blastp';
 const defaultBlastnHitLimit = 5;
 const defaultBatchHitLimit = 3;
-const defaultHspLimit = 3;
-const defaultMaxGenes = 3;
+const defaultHspLimit = 1;
 const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
@@ -37,7 +36,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
-    const [maxGenes, setMaxGenes] = useState(defaultMaxGenes);
     const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp);
     const [progress, setProgress] = useState('');
     const [error, setError] = useState();
@@ -120,7 +118,6 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     }
     async function runBlastpGenes() {
         const region = getSingleRegion(regions);
-        const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes);
         const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit);
         const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
         const runPrefix = sanitizeTrackId(`run_${Date.now()}_${region.refName}_${region.start}`);
@@ -129,7 +126,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         if (!genes.length) {
             throw new Error(`No visible gene, mRNA, or transcript features found in ${regionLabel(region)}. Zoom in until the gene track is rendered, then run BLASTP genes in selection again.`);
         }
-        const selectedGenes = genes.slice(0, sanitizedMaxGenes);
+        const selectedGenes = genes;
         if (selectedGenes.length >= highVolumeGeneWarningThreshold) {
             getSession(model).notify(`Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`, 'warning');
         }
@@ -259,18 +256,13 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             trackId: sanitizeTrackId(`blastp_genes_${region.refName}_${region.start}_${region.end}_${rid}`),
             view: model,
         });
-        const skippedByLimit = genes.length - selectedGenes.length;
         const skippedNoSequence = selectedGenes.length - queries.length;
         const submittedWithoutHits = queryStatusFeatures.filter(feature => feature.blastStatus === 'no_hits').length;
         const submittedWithoutMatchedReport = queryStatusFeatures.filter(feature => feature.blastStatus === 'no_report').length;
-        if (skippedByLimit ||
-            skippedNoSequence ||
+        if (skippedNoSequence ||
             submittedWithoutHits ||
             submittedWithoutMatchedReport) {
             getSession(model).notify([
-                skippedByLimit
-                    ? `${skippedByLimit} genes skipped by the max-gene limit`
-                    : '',
                 skippedNoSequence
                     ? `${skippedNoSequence} genes marked without CDS/protein sequence`
                     : '',
@@ -295,9 +287,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'
-                                        : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Query genes", helperText: "Selected genes to submit", value: maxGenes, onChange: event => {
-                                    setMaxGenes(Number(event.target.value));
-                                }, sx: { ml: 2, width: 150 } })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
+                                        : 'blastp (standard, slower)' }, option))) })] })) : (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", label: "BLAST database", value: blastDatabase, onChange: event => {
                                     setBlastDatabase(event.target.value);
                                 }, sx: { mr: 2, minWidth: 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max region bp", value: maxRegionBp, onChange: event => {
                                     setMaxRegionBp(Number(event.target.value));
@@ -305,7 +295,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             ? 'BLAST subject hits per query gene'
                             : 'BLAST subject hits for this region', value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "HSPs per hit", helperText: "Alignment segments inside each hit", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
@@ -330,12 +320,6 @@ function getSingleRegion(regions) {
 function sanitizeHitLimit(value, fallback) {
     if (!Number.isFinite(value)) {
         return fallback;
-    }
-    return Math.min(100, Math.max(1, Math.floor(value)));
-}
-function sanitizeMaxGenes(value) {
-    if (!Number.isFinite(value)) {
-        return defaultMaxGenes;
     }
     return Math.min(100, Math.max(1, Math.floor(value)));
 }

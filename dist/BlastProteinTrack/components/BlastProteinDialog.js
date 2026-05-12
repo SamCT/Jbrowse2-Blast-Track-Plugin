@@ -14,7 +14,7 @@ const blastProgramOptions = ['blastp', 'quick-blastp'];
 const defaultBlastDatabase = 'nr_clustered_seq';
 const defaultBlastProgram = 'blastp';
 const defaultHitLimit = 3;
-const defaultHspLimit = 3;
+const defaultHspLimit = 1;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const view = getContainingView(model);
@@ -126,7 +126,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                                 ? 'quick-blastp (faster NCBI protein BLAST)'
                                 : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { margin: "normal", type: "number", label: "Number of matches", helperText: "Distinct subject proteins to keep for this gene", value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 210 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "Best aligned pieces to draw inside each match", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: 210 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);

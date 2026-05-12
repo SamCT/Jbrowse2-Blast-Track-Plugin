@@ -44,8 +44,7 @@ const defaultProteinDatabase = 'nr_clustered_seq'
 const defaultProteinProgram = 'blastp'
 const defaultBlastnHitLimit = 5
 const defaultBatchHitLimit = 3
-const defaultHspLimit = 3
-const defaultMaxGenes = 3
+const defaultHspLimit = 1
 const defaultMaxRegionBp = 50_000
 const highVolumeGeneWarningThreshold = 10
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
@@ -82,7 +81,6 @@ export default function BlastSelectionDialog({
   )
   const [hspLimit, setHspLimit] = useState(defaultHspLimit)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
-  const [maxGenes, setMaxGenes] = useState(defaultMaxGenes)
   const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState<unknown>()
@@ -179,7 +177,6 @@ export default function BlastSelectionDialog({
 
   async function runBlastpGenes() {
     const region = getSingleRegion(regions)
-    const sanitizedMaxGenes = sanitizeMaxGenes(maxGenes)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
     const runPrefix = sanitizeTrackId(
@@ -194,7 +191,7 @@ export default function BlastSelectionDialog({
       )
     }
 
-    const selectedGenes = genes.slice(0, sanitizedMaxGenes)
+    const selectedGenes = genes
     if (selectedGenes.length >= highVolumeGeneWarningThreshold) {
       getSession(model).notify(
         `Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`,
@@ -353,7 +350,6 @@ export default function BlastSelectionDialog({
       view: model,
     })
 
-    const skippedByLimit = genes.length - selectedGenes.length
     const skippedNoSequence = selectedGenes.length - queries.length
     const submittedWithoutHits = queryStatusFeatures.filter(
       feature => feature.blastStatus === 'no_hits',
@@ -362,16 +358,12 @@ export default function BlastSelectionDialog({
       feature => feature.blastStatus === 'no_report',
     ).length
     if (
-      skippedByLimit ||
       skippedNoSequence ||
       submittedWithoutHits ||
       submittedWithoutMatchedReport
     ) {
       getSession(model).notify(
         [
-          skippedByLimit
-            ? `${skippedByLimit} genes skipped by the max-gene limit`
-            : '',
           skippedNoSequence
             ? `${skippedNoSequence} genes marked without CDS/protein sequence`
             : '',
@@ -436,17 +428,6 @@ export default function BlastSelectionDialog({
                 </MenuItem>
               ))}
             </TextField>
-            <TextField
-              margin="normal"
-              type="number"
-              label="Query genes"
-              helperText="Selected genes to submit"
-              value={maxGenes}
-              onChange={event => {
-                setMaxGenes(Number(event.target.value))
-              }}
-              sx={{ ml: 2, width: 150 }}
-            />
           </>
         ) : (
           <>
@@ -489,8 +470,8 @@ export default function BlastSelectionDialog({
         <TextField
           margin="normal"
           type="number"
-          label="HSPs per hit"
-          helperText="Alignment segments inside each hit"
+          label="Alignment segments"
+          helperText="1 = best segment, most sensitive; 3 = looser and may draw less accurate segments"
           value={hspLimit}
           onChange={event => {
             setHspLimit(Number(event.target.value))
@@ -579,13 +560,6 @@ function getSingleRegion(regions: SelectedRegion[]) {
 function sanitizeHitLimit(value: number, fallback: number) {
   if (!Number.isFinite(value)) {
     return fallback
-  }
-  return Math.min(100, Math.max(1, Math.floor(value)))
-}
-
-function sanitizeMaxGenes(value: number) {
-  if (!Number.isFinite(value)) {
-    return defaultMaxGenes
   }
   return Math.min(100, Math.max(1, Math.floor(value)))
 }
