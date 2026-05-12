@@ -122,6 +122,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 allAccessions: joinedDescriptionField(descriptions, 'accession'),
                 allDescriptions: joinedDescriptionField(descriptions, 'title'),
                 deduplicatedProductKey: rankingStats.productKey,
+                deduplicatedSubjectGeneKey: rankingStats.subjectGeneKey,
                 rankingScore: rankingStats.rankingScore,
                 maxHspsPerHit: hspLimit,
                 availableHspCount: allHsps.length,
@@ -349,15 +350,18 @@ function selectDisplayedHits(rankedHits, hitLimit) {
     const selected = [];
     const selectedHits = new Set();
     const selectedProductKeys = new Set();
+    const selectedSubjectGeneKeys = new Set();
     function add(hit, allowDuplicateProduct = false) {
         if (!hit ||
             selectedHits.has(hit.hit) ||
+            selectedSubjectGeneKeys.has(hit.stats.subjectGeneKey) ||
             (!allowDuplicateProduct && selectedProductKeys.has(hit.stats.productKey)) ||
             selected.length >= hitLimit) {
             return;
         }
         selectedHits.add(hit.hit);
         selectedProductKeys.add(hit.stats.productKey);
+        selectedSubjectGeneKeys.add(hit.stats.subjectGeneKey);
         selected.push(hit);
     }
     add(rankedHits.find(({ stats }) => stats.isLikelyCompleteAnnotatedMatch));
@@ -465,6 +469,7 @@ function hitRankingStats(hit, queryProteinLength) {
             subjectToQueryLengthRatio,
         }),
         productKey: productKeyForHit(hit),
+        subjectGeneKey: subjectGeneKeyForHit(hit),
         subjectLength,
         subjectToQueryLengthRatio,
     };
@@ -556,6 +561,33 @@ function productKeyForHit(hit) {
     }
     return `product:${normalizeProductTitle(title)}`;
 }
+function subjectGeneKeyForHit(hit) {
+    const descriptions = hit.description ?? [];
+    const description = displayDescription(descriptions);
+    const title = normalizeProductTitle(description.title ?? '');
+    const organism = normalizeSubjectOrganism(description);
+    const accessionStem = normalizeAccessionStem(description.accession ?? description.id);
+    if (title && organism) {
+        return `title-organism:${title}:${organism}`;
+    }
+    if (title && accessionStem) {
+        return `title-accession:${title}:${accessionStem}`;
+    }
+    return `accession:${description.accession ?? description.id ?? hit.num ?? 'unknown'}`;
+}
+function normalizeSubjectOrganism(description) {
+    if (description.taxid !== undefined) {
+        return String(description.taxid);
+    }
+    if (description.sciname) {
+        return description.sciname.trim().toLowerCase();
+    }
+    const organismMatch = /\[([^\]]+)\]\s*$/.exec(description.title ?? '');
+    return organismMatch?.[1]?.trim().toLowerCase();
+}
+function normalizeAccessionStem(accession) {
+    return accession?.replace(/\.\d+$/, '').trim().toLowerCase();
+}
 function genericProductKey(title) {
     if (/\bhypothetical\b/i.test(title)) {
         return 'generic:hypothetical protein';
@@ -576,7 +608,7 @@ function stripOrganismSuffix(title) {
 }
 function normalizeProductTitle(title) {
     return stripOrganismSuffix(title)
-        .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:)\b/gi, ' ')
+        .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:|PREDICTED:)\b/gi, ' ')
         .replaceAll(/[^a-z0-9]+/gi, ' ')
         .trim()
         .toLowerCase();

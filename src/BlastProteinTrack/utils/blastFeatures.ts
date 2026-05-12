@@ -41,6 +41,7 @@ interface HitRankingStats {
   queryCoverage: number
   rankingScore: number
   productKey: string
+  subjectGeneKey: string
   subjectLength: number
   subjectToQueryLengthRatio: number
 }
@@ -190,6 +191,7 @@ export function featuresFromBlastHits({
         allAccessions: joinedDescriptionField(descriptions, 'accession'),
         allDescriptions: joinedDescriptionField(descriptions, 'title'),
         deduplicatedProductKey: rankingStats.productKey,
+        deduplicatedSubjectGeneKey: rankingStats.subjectGeneKey,
         rankingScore: rankingStats.rankingScore,
         maxHspsPerHit: hspLimit,
         availableHspCount: allHsps.length,
@@ -534,11 +536,13 @@ function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
   const selected: RankedHit[] = []
   const selectedHits = new Set<BlastHit>()
   const selectedProductKeys = new Set<string>()
+  const selectedSubjectGeneKeys = new Set<string>()
 
   function add(hit?: RankedHit, allowDuplicateProduct = false) {
     if (
       !hit ||
       selectedHits.has(hit.hit) ||
+      selectedSubjectGeneKeys.has(hit.stats.subjectGeneKey) ||
       (!allowDuplicateProduct && selectedProductKeys.has(hit.stats.productKey)) ||
       selected.length >= hitLimit
     ) {
@@ -546,6 +550,7 @@ function selectDisplayedHits(rankedHits: RankedHit[], hitLimit: number) {
     }
     selectedHits.add(hit.hit)
     selectedProductKeys.add(hit.stats.productKey)
+    selectedSubjectGeneKeys.add(hit.stats.subjectGeneKey)
     selected.push(hit)
   }
 
@@ -674,6 +679,7 @@ function hitRankingStats(
       subjectToQueryLengthRatio,
     }),
     productKey: productKeyForHit(hit),
+    subjectGeneKey: subjectGeneKeyForHit(hit),
     subjectLength,
     subjectToQueryLengthRatio,
   }
@@ -802,6 +808,39 @@ function productKeyForHit(hit: BlastHit) {
   return `product:${normalizeProductTitle(title)}`
 }
 
+function subjectGeneKeyForHit(hit: BlastHit) {
+  const descriptions = hit.description ?? []
+  const description = displayDescription(descriptions)
+  const title = normalizeProductTitle(description.title ?? '')
+  const organism = normalizeSubjectOrganism(description)
+  const accessionStem = normalizeAccessionStem(
+    description.accession ?? description.id,
+  )
+
+  if (title && organism) {
+    return `title-organism:${title}:${organism}`
+  }
+  if (title && accessionStem) {
+    return `title-accession:${title}:${accessionStem}`
+  }
+  return `accession:${description.accession ?? description.id ?? hit.num ?? 'unknown'}`
+}
+
+function normalizeSubjectOrganism(description: BlastHitDescription) {
+  if (description.taxid !== undefined) {
+    return String(description.taxid)
+  }
+  if (description.sciname) {
+    return description.sciname.trim().toLowerCase()
+  }
+  const organismMatch = /\[([^\]]+)\]\s*$/.exec(description.title ?? '')
+  return organismMatch?.[1]?.trim().toLowerCase()
+}
+
+function normalizeAccessionStem(accession?: string) {
+  return accession?.replace(/\.\d+$/, '').trim().toLowerCase()
+}
+
 function genericProductKey(title: string) {
   if (/\bhypothetical\b/i.test(title)) {
     return 'generic:hypothetical protein'
@@ -824,7 +863,7 @@ function stripOrganismSuffix(title: string) {
 
 function normalizeProductTitle(title: string) {
   return stripOrganismSuffix(title)
-    .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:)\b/gi, ' ')
+    .replace(/\b(partial|isoform\s+\S+|LOW QUALITY PROTEIN:|PREDICTED:)\b/gi, ' ')
     .replaceAll(/[^a-z0-9]+/gi, ' ')
     .trim()
     .toLowerCase()

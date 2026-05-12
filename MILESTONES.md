@@ -1,5 +1,115 @@
 # Milestones
 
+## Milestone 001: Local BLAST Table Import
+
+Goal: let users load BLAST results produced outside BlastTrack, such as local BLAST+ searches, HPC cluster jobs, or searches against `makeblastdb` databases, and render them as same-view BlastTrack result tracks without submitting sequence to NCBI or requiring BlastTrack to run the server-side job.
+
+### User Workflow
+
+Status: planned.
+
+1. User opens a BlastTrack action from the top-level menu or plugin panel: **Add BLAST file from local**.
+2. Dialog explains the supported BLAST tabular format and shows a copyable example command.
+3. User chooses a local `.tsv`, `.tab`, or `.blast6` file from disk.
+4. User selects how query IDs should be resolved:
+   - Match `qseqid` to feature IDs/names in a selected annotation track.
+   - Match `qseqid` to query markers from an existing BlastTrack run.
+   - Later extension: upload a query-coordinate mapping file, such as BED/GFF/TSV.
+5. Plugin parses the BLAST table, groups rows by `qseqid` and `sseqid`, limits hits/HSPs with the same defaults as NCBI runs, and adds a same-view `FeatureTrack`.
+6. Unmatched query IDs are reported in the dialog and optionally rendered as distinct "unmapped query" markers.
+
+### HPC Precomputed Database Workflow
+
+Status: planned.
+
+- User or admin creates BLAST databases on the HPC with `makeblastdb`.
+- User runs `blastp`, `blastn`, `tblastn`, or later `tblastx` outside JBrowse using scheduler/HPC resources.
+- The completed BLAST table is made available to JBrowse through an HTTPS-accessible URL or selected as a local file.
+- BlastTrack parses and renders the completed table only; it does not need to submit the job, poll a queue, or access raw BLAST database files.
+- Future config can predefine named completed-result tables, but arbitrary server filesystem paths should not be exposed to the browser.
+
+### Recommended BLAST+ Output
+
+For local protein searches that should resemble the current NCBI `blastp` track, users should run BLAST+ with explicit tabular columns:
+
+```bash
+blastp \
+  -query query_proteins.fa \
+  -db local_protein_db \
+  -evalue 1e-5 \
+  -max_target_seqs 5 \
+  -max_hsps 3 \
+  -outfmt "6 qseqid sseqid pident length mismatch gapopen gaps qstart qend sstart send evalue bitscore qlen slen qcovhsp qcovs nident positive ppos staxids sscinames stitle qseq sseq" \
+  -out blasttrack_hits.tsv
+```
+
+For nucleotide searches:
+
+```bash
+blastn \
+  -query query_regions.fa \
+  -db local_nucleotide_db \
+  -evalue 1e-10 \
+  -max_target_seqs 5 \
+  -max_hsps 3 \
+  -outfmt "6 qseqid sseqid pident length mismatch gapopen gaps qstart qend sstart send evalue bitscore qlen slen qcovhsp qcovs nident staxids sscinames stitle qseq sseq" \
+  -out blasttrack_hits.tsv
+```
+
+Minimum supported columns should be:
+
+```text
+qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+```
+
+Preferred columns should add:
+
+```text
+gaps qlen slen qcovhsp qcovs nident positive ppos staxids sscinames stitle qseq sseq
+```
+
+Notes:
+
+- The default BLAST+ `-outfmt 6` columns are the 12-column minimum above. Extra fields are needed for richer feature details, query coverage, subject description text, positives, and optional mismatch/gap ticks.
+- `qseq` and `sseq` are only required if BlastTrack should reconstruct per-position mismatch/gap ticks from the local table.
+- `stitle` should become the feature `description` so JBrowse displays the blue description text beside the hit label.
+- `qseqid` must be stable and should match gene/transcript/CDS IDs from JBrowse or IDs produced by a BlastTrack-exported query FASTA.
+
+### Parsing And Rendering Requirements
+
+- Add a parser for BLAST tabular files with configurable column presets:
+  - `std`: the 12-column default BLAST+ format.
+  - `blasttrack`: the recommended extended format above.
+  - `custom`: user supplies the column list matching their file.
+- Group multiple rows with the same `qseqid` and `sseqid` as HSPs under one parent hit.
+- Sort hits by best E-value, then highest bit score, matching the current NCBI path.
+- Apply the same defaults:
+  - 3 hits per query for local `blastp` imports.
+  - 5 hits for local `blastn` region imports.
+  - 3 HSPs per hit.
+- Reuse existing feature-detail fields where possible: accession/ID, description, percent identity, positives, mismatches, gaps, query coverage, E-value, bit score, subject range, and HSP count.
+- Render local `blastp` HSPs over query CDS coordinates when `qseqid` maps to a gene/transcript/CDS feature.
+- Render local `blastn` HSPs over the query region when `qseqid` maps to a selected region/query marker.
+- Keep imported tracks session-only by default, with a later option to save them into the JBrowse session/config.
+
+### UI Notes
+
+- Add a button labeled **Add BLAST file from local**.
+- Put it in a place users naturally look for data import:
+  - preferred: top-level JBrowse **Add** or **Tools** menu contribution from BlastTrack;
+  - fallback: a BlastTrack dialog action near the existing BLAST launch controls.
+- The dialog should preview the first 5 parsed rows, show detected column names/order, and warn about missing preferred columns.
+- The dialog should not upload the file anywhere; parsing stays in the browser.
+
+### Acceptance Criteria
+
+- User can run the example `blastp` command, select `blasttrack_hits.tsv`, and load hits over matching query gene/CDS loci in the current linear genome view.
+- User can load a default 12-column BLAST `-outfmt 6` file and still see parent hit/HSP blocks with core statistics.
+- Rows with the same query and subject become one parent hit with multiple HSP children.
+- Missing `stitle`, `qseq`, or `sseq` degrade gracefully: no blue description or no mismatch ticks, but the track still loads.
+- Unmatched query IDs are reported clearly and do not break the whole import.
+- Local imports never call NCBI and are not rate-limited by the NCBI queue.
+
 ## Milestone: Region And CDS BLAST Workflows
 
 Goal: extend the plugin beyond right-click gene `blastp` so users can BLAST selected nucleotide regions and coding-derived sequences without leaving the linear genome view.
