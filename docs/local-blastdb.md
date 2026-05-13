@@ -21,6 +21,23 @@ database files do not need to be listed in `config.json`.
 }
 ```
 
+If JBrowse is hosted under a subpath and the local BLAST API is also mounted
+under that subpath, add `blastApiBase` to the plugin URL:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "BlastTrack",
+      "url": "https://cdn.jsdelivr.net/gh/SamCT/Jbrowse2-Blast-Track-Plugin@main/dist/jbrowse-plugin-blast-track.umd.production.min.js?blastApiBase=/private/jbrowse2/api/blast"
+    }
+  ]
+}
+```
+
+This only changes where the browser sends local BLAST requests. The web server
+still needs to provide that API route.
+
 After the plugin loads, use **Load local BLAST DBs** in the BLASTP dialog. If
 the server finds databases, they appear as entries such as:
 
@@ -99,6 +116,38 @@ GET  /api/blast/dbs?program=blastp
 POST /api/blast/search
 ```
 
+With `?blastApiBase=/private/jbrowse2/api/blast`, the same calls become:
+
+```text
+GET  /private/jbrowse2/api/blast/dbs?program=blastp
+POST /private/jbrowse2/api/blast/search
+```
+
 That means the local BLASTP feature requires a JBrowse host that provides these
 endpoints. A static file host can load the plugin and run NCBI BLAST, but it
 cannot run local BLAST databases unless an API server is added.
+
+## Reverse proxy example
+
+If Apache already serves JBrowse at `/private/jbrowse2`, the local BLAST API can
+be routed through the same origin by proxying only the API subpath to a backend
+process:
+
+```apache
+ProxyPass        /private/jbrowse2/api/blast/ http://127.0.0.1:3000/api/blast/
+ProxyPassReverse /private/jbrowse2/api/blast/ http://127.0.0.1:3000/api/blast/
+```
+
+The backend process would run on the HPC with access to BLAST+ and the database
+directory:
+
+```bash
+BLASTDB_DIR=/data/blastDB \
+BLAST_BIN_DIR=/path/to/ncbi-blast+/bin \
+PORT=3000 \
+npm run serve:jbrowse
+```
+
+The exact Apache/Nginx syntax depends on the site configuration. The important
+point is that `/private/jbrowse2/api/blast/...` must return JSON from the BLAST
+API rather than an HTML 404 page.
