@@ -4,7 +4,8 @@ const blastToolName = 'BlastTrack'
 const submitIntervalMs = 10_000
 const initialPollSeconds = 30
 const waitingPollIntervalSeconds = 30
-const maximumCandidateHits = 100
+const maximumCandidateHits = 250
+const maximumClusteredProteinCandidateHits = 300
 
 let submitQueue = Promise.resolve()
 let lastSubmitStartedAt = 0
@@ -66,13 +67,18 @@ export async function queryBlastReports({
   baseUrl: string
   onProgress: (arg: string) => void
 }): Promise<{ rid: string; reports: BlastQueryReport[] }> {
+  const candidateLimit = candidateHitLimit({
+    blastDatabase,
+    blastProgram,
+    displayHitLimit: hitLimit,
+  })
   onProgress('Submitting query to NCBI BLAST...')
   const rid = await submitBlastQuery({
     query,
     blastDatabase,
     blastProgram,
     contactEmail,
-    hitLimit,
+    candidateLimit,
     baseUrl,
     onProgress,
   })
@@ -82,12 +88,14 @@ export async function queryBlastReports({
     contactEmail,
     onProgress,
   })
-  onProgress('Downloading BLAST alignments...')
+  onProgress(`Downloading top ${candidateLimit} BLAST candidate alignments...`)
   const result = await jsonFetch<BlastResults>(`${baseUrl}?${blastParams({
     contactEmail,
     params: {
       CMD: 'Get',
       RID: rid,
+      ALIGNMENTS: String(candidateLimit),
+      DESCRIPTIONS: String(candidateLimit),
       FORMAT_TYPE: 'JSON2_S',
       FORMAT_OBJECT: 'Alignment',
     },
@@ -112,7 +120,7 @@ async function submitBlastQuery({
   blastDatabase,
   blastProgram,
   contactEmail,
-  hitLimit,
+  candidateLimit,
   baseUrl,
   onProgress,
 }: {
@@ -120,7 +128,7 @@ async function submitBlastQuery({
   blastDatabase: string
   blastProgram: string
   contactEmail?: string
-  hitLimit: number
+  candidateLimit: number
   baseUrl: string
   onProgress: (arg: string) => void
 }) {
@@ -134,7 +142,7 @@ async function submitBlastQuery({
           PROGRAM: blastProgram === 'quick-blastp' ? 'blastp' : blastProgram,
           DATABASE: blastDatabase,
           QUERY: query,
-          HITLIST_SIZE: String(candidateHitLimit(hitLimit)),
+          HITLIST_SIZE: String(candidateLimit),
           ...(blastProgram === 'quick-blastp'
             ? {
                 BLAST_PROGRAMS: 'kmerBlastp',
@@ -253,8 +261,26 @@ function blastParams({
   })
 }
 
-function candidateHitLimit(displayHitLimit: number) {
-  return Math.min(maximumCandidateHits, Math.max(1, Math.floor(displayHitLimit)))
+function candidateHitLimit({
+  blastDatabase,
+  blastProgram,
+  displayHitLimit,
+}: {
+  blastDatabase: string
+  blastProgram: string
+  displayHitLimit: number
+}) {
+  const requestedDisplayHits = Math.max(1, Math.floor(displayHitLimit))
+  if (blastProgram === 'blastp' && blastDatabase === 'nr_cluster_seq') {
+    return Math.min(
+      maximumClusteredProteinCandidateHits,
+      Math.max(100, requestedDisplayHits * 50),
+    )
+  }
+  if (blastProgram === 'blastp' || blastProgram === 'quick-blastp') {
+    return Math.min(maximumCandidateHits, Math.max(100, requestedDisplayHits * 25))
+  }
+  return Math.min(100, Math.max(25, requestedDisplayHits * 10))
 }
 
 async function textFetch(url: string, init?: RequestInit) {

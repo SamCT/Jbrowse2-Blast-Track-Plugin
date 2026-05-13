@@ -2,7 +2,8 @@ const blastToolName = 'BlastTrack';
 const submitIntervalMs = 10_000;
 const initialPollSeconds = 30;
 const waitingPollIntervalSeconds = 30;
-const maximumCandidateHits = 100;
+const maximumCandidateHits = 250;
+const maximumClusteredProteinCandidateHits = 300;
 let submitQueue = Promise.resolve();
 let lastSubmitStartedAt = 0;
 export async function queryBlast({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
@@ -21,13 +22,18 @@ export async function queryBlast({ query, blastDatabase, blastProgram, contactEm
     };
 }
 export async function queryBlastReports({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
+    const candidateLimit = candidateHitLimit({
+        blastDatabase,
+        blastProgram,
+        displayHitLimit: hitLimit,
+    });
     onProgress('Submitting query to NCBI BLAST...');
     const rid = await submitBlastQuery({
         query,
         blastDatabase,
         blastProgram,
         contactEmail,
-        hitLimit,
+        candidateLimit,
         baseUrl,
         onProgress,
     });
@@ -37,12 +43,14 @@ export async function queryBlastReports({ query, blastDatabase, blastProgram, co
         contactEmail,
         onProgress,
     });
-    onProgress('Downloading BLAST alignments...');
+    onProgress(`Downloading top ${candidateLimit} BLAST candidate alignments...`);
     const result = await jsonFetch(`${baseUrl}?${blastParams({
         contactEmail,
         params: {
             CMD: 'Get',
             RID: rid,
+            ALIGNMENTS: String(candidateLimit),
+            DESCRIPTIONS: String(candidateLimit),
             FORMAT_TYPE: 'JSON2_S',
             FORMAT_OBJECT: 'Alignment',
         },
@@ -60,7 +68,7 @@ export async function queryBlastReports({ query, blastDatabase, blastProgram, co
         }),
     };
 }
-async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
+async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEmail, candidateLimit, baseUrl, onProgress, }) {
     return enqueueBlastSubmission({
         onProgress,
         submit: async () => {
@@ -71,7 +79,7 @@ async function submitBlastQuery({ query, blastDatabase, blastProgram, contactEma
                     PROGRAM: blastProgram === 'quick-blastp' ? 'blastp' : blastProgram,
                     DATABASE: blastDatabase,
                     QUERY: query,
-                    HITLIST_SIZE: String(candidateHitLimit(hitLimit)),
+                    HITLIST_SIZE: String(candidateLimit),
                     ...(blastProgram === 'quick-blastp'
                         ? {
                             BLAST_PROGRAMS: 'kmerBlastp',
@@ -149,8 +157,15 @@ function blastParams({ contactEmail, params, }) {
         ...(email ? { email } : {}),
     });
 }
-function candidateHitLimit(displayHitLimit) {
-    return Math.min(maximumCandidateHits, Math.max(1, Math.floor(displayHitLimit)));
+function candidateHitLimit({ blastDatabase, blastProgram, displayHitLimit, }) {
+    const requestedDisplayHits = Math.max(1, Math.floor(displayHitLimit));
+    if (blastProgram === 'blastp' && blastDatabase === 'nr_cluster_seq') {
+        return Math.min(maximumClusteredProteinCandidateHits, Math.max(100, requestedDisplayHits * 50));
+    }
+    if (blastProgram === 'blastp' || blastProgram === 'quick-blastp') {
+        return Math.min(maximumCandidateHits, Math.max(100, requestedDisplayHits * 25));
+    }
+    return Math.min(100, Math.max(25, requestedDisplayHits * 10));
 }
 async function textFetch(url, init) {
     const response = await fetch(url, init);
