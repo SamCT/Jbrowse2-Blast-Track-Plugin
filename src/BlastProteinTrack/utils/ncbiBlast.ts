@@ -5,7 +5,6 @@ const submitIntervalMs = 10_000
 const initialPollSeconds = 30
 const waitingPollIntervalSeconds = 30
 const maximumCandidateHits = 100
-const maximumClusteredProteinCandidateHits = 75
 
 let submitQueue = Promise.resolve()
 let lastSubmitStartedAt = 0
@@ -68,8 +67,6 @@ export async function queryBlastReports({
   onProgress: (arg: string) => void
 }): Promise<{ rid: string; reports: BlastQueryReport[] }> {
   const candidateLimit = candidateHitLimit({
-    blastDatabase,
-    blastProgram,
     displayHitLimit: hitLimit,
   })
   onProgress('Submitting query to NCBI BLAST...')
@@ -262,25 +259,12 @@ function blastParams({
 }
 
 function candidateHitLimit({
-  blastDatabase,
-  blastProgram,
   displayHitLimit,
 }: {
-  blastDatabase: string
-  blastProgram: string
   displayHitLimit: number
 }) {
   const requestedDisplayHits = Math.max(1, Math.floor(displayHitLimit))
-  if (blastProgram === 'blastp' && blastDatabase === 'nr_cluster_seq') {
-    return Math.min(
-      maximumClusteredProteinCandidateHits,
-      Math.max(30, requestedDisplayHits * 15),
-    )
-  }
-  if (blastProgram === 'blastp' || blastProgram === 'quick-blastp') {
-    return Math.min(maximumCandidateHits, Math.max(25, requestedDisplayHits * 10))
-  }
-  return Math.min(50, Math.max(25, requestedDisplayHits * 10))
+  return Math.min(maximumCandidateHits, requestedDisplayHits)
 }
 
 async function textFetch(url: string, init?: RequestInit) {
