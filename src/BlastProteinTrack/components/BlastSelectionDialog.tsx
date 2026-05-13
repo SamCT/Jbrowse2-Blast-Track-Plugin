@@ -54,6 +54,7 @@ const defaultProteinProgram = 'blastp'
 const defaultBlastnHitLimit = 5
 const defaultBatchHitLimit = 3
 const defaultHspLimit = 1
+const defaultMinIdentityPercent = 30
 const defaultMaxRegionBp = 50_000
 const highVolumeGeneWarningThreshold = 10
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
@@ -98,6 +99,13 @@ export default function BlastSelectionDialog({
   >([])
   const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false)
   const [localAllHits, setLocalAllHits] = useState(false)
+  const [minIdentityPercent, setMinIdentityPercent] = useState(
+    defaultMinIdentityPercent,
+  )
+  const [includeGenericDescriptions, setIncludeGenericDescriptions] =
+    useState(true)
+  const [highlightLongerSubjectProteins, setHighlightLongerSubjectProteins] =
+    useState(true)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
   const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp)
   const [progress, setProgress] = useState('')
@@ -226,6 +234,8 @@ export default function BlastSelectionDialog({
     const region = getSingleRegion(regions)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
+    const sanitizedMinIdentityPercent =
+      sanitizeMinIdentityPercent(minIdentityPercent)
     const displayedHitLimit =
       localBlastDatabase && localAllHits
         ? Number.POSITIVE_INFINITY
@@ -369,10 +379,13 @@ export default function BlastSelectionDialog({
       reportMatchesByGene.set(feature, reportMatch)
       const renderedHits = featuresFromBlastHits({
         blastProgram: resultBlastProgram,
+        highlightLongerSubjectProteins,
         hitLimit: displayedHitLimit,
         hspLimit: sanitizedHspLimit,
         hits: reportMatch.report?.hits ?? [],
+        includeGenericDescriptions,
         idPrefix,
+        minIdentityPercent: sanitizedMinIdentityPercent,
         queryFeature: feature,
         queryProteinLength: sequence.length,
         showMismatchMarkers,
@@ -408,6 +421,11 @@ export default function BlastSelectionDialog({
       ...noSequenceFeatures,
       ...hitFeatures,
     ]
+    if (!hitFeatures.length) {
+      throw new Error(
+        `No BLASTP hits passed the current filters. Try lowering minimum identity below ${sanitizedMinIdentityPercent}% or including hypothetical/uncharacterized hits.`,
+      )
+    }
 
     addBlastFeatureTrack({
       appendToTrackId: appendToExistingTrack
@@ -588,6 +606,19 @@ export default function BlastSelectionDialog({
             label="All local BLAST hits"
           />
         ) : null}
+        {mode === 'blastp-genes' ? (
+          <TextField
+            margin="normal"
+            type="number"
+            label="Minimum identity (%)"
+            helperText="Weighted across each BLASTP hit before rendering"
+            value={minIdentityPercent}
+            onChange={event => {
+              setMinIdentityPercent(Number(event.target.value))
+            }}
+            sx={{ ml: 2, width: 210 }}
+          />
+        ) : null}
         <TextField
           margin="normal"
           type="number"
@@ -599,6 +630,32 @@ export default function BlastSelectionDialog({
           }}
           sx={{ ml: 2, width: 210 }}
         />
+        {mode === 'blastp-genes' ? (
+          <>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={includeGenericDescriptions}
+                  onChange={event => {
+                    setIncludeGenericDescriptions(event.target.checked)
+                  }}
+                />
+              }
+              label="Include hypothetical/uncharacterized hits"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={highlightLongerSubjectProteins}
+                  onChange={event => {
+                    setHighlightLongerSubjectProteins(event.target.checked)
+                  }}
+                />
+              }
+              label="Highlight larger subject proteins"
+            />
+          </>
+        ) : null}
         <FormControlLabel
           control={
             <Checkbox
@@ -690,6 +747,13 @@ function sanitizeHspLimit(value: number) {
     return defaultHspLimit
   }
   return Math.min(100, Math.max(1, Math.floor(value)))
+}
+
+function sanitizeMinIdentityPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return defaultMinIdentityPercent
+  }
+  return Math.min(100, Math.max(0, Number(value)))
 }
 
 function sanitizeMaxRegionBp(value: number) {

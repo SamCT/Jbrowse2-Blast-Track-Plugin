@@ -1,10 +1,13 @@
 import type { BlastHit } from './types';
 import type { Feature } from '@jbrowse/core/util';
-export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, idPrefix, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, source, }: {
+export declare function featuresFromBlastHits({ blastProgram, highlightLongerSubjectProteins, hspLimit, hits, includeGenericDescriptions, idPrefix, minIdentityPercent, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, source, }: {
     blastProgram?: string;
+    highlightLongerSubjectProteins?: boolean;
     hspLimit: number;
     hits: BlastHit[];
+    includeGenericDescriptions?: boolean;
     idPrefix?: string;
+    minIdentityPercent?: number;
     queryFeature: Feature;
     queryProteinLength: number;
     hitLimit: number;
@@ -34,8 +37,14 @@ export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, id
     mismatches: number;
     gaps: number;
     hspCount: number;
+    displayedHspCount: number;
+    renderedHspCount: number;
     candidateClass: string;
     blastCandidateClass: string;
+    unhighlightedBlastCandidateClass: string;
+    subjectIsLongerThanQuery: boolean;
+    longerSubjectProtein: boolean;
+    highlightedLongerSubjectProtein: boolean;
     subjectToQueryLengthRatio: number;
     strand: number;
     score: number;
@@ -73,6 +82,9 @@ export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, id
     deduplicatedProductKey: string;
     deduplicatedSubjectGeneKey: string;
     rankingScore: number;
+    minIdentityFilterPercent: number;
+    genericDescriptionsIncluded: boolean;
+    highlightLongerSubjectProteins: boolean;
     maxHspsPerHit: number;
     availableHspCount: number;
     mismatchMarkersShown: boolean;

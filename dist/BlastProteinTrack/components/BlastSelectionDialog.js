@@ -21,6 +21,7 @@ const defaultProteinProgram = 'blastp';
 const defaultBlastnHitLimit = 5;
 const defaultBatchHitLimit = 3;
 const defaultHspLimit = 1;
+const defaultMinIdentityPercent = 30;
 const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
@@ -41,6 +42,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [localBlastDatabases, setLocalBlastDatabases] = useState([]);
     const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false);
     const [localAllHits, setLocalAllHits] = useState(false);
+    const [minIdentityPercent, setMinIdentityPercent] = useState(defaultMinIdentityPercent);
+    const [includeGenericDescriptions, setIncludeGenericDescriptions] = useState(true);
+    const [highlightLongerSubjectProteins, setHighlightLongerSubjectProteins] = useState(true);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
     const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp);
     const [progress, setProgress] = useState('');
@@ -154,6 +158,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const region = getSingleRegion(regions);
         const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit);
         const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
+        const sanitizedMinIdentityPercent = sanitizeMinIdentityPercent(minIdentityPercent);
         const displayedHitLimit = localBlastDatabase && localAllHits
             ? Number.POSITIVE_INFINITY
             : sanitizedHitLimit;
@@ -264,10 +269,13 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             reportMatchesByGene.set(feature, reportMatch);
             const renderedHits = featuresFromBlastHits({
                 blastProgram: resultBlastProgram,
+                highlightLongerSubjectProteins,
                 hitLimit: displayedHitLimit,
                 hspLimit: sanitizedHspLimit,
                 hits: reportMatch.report?.hits ?? [],
+                includeGenericDescriptions,
                 idPrefix,
+                minIdentityPercent: sanitizedMinIdentityPercent,
                 queryFeature: feature,
                 queryProteinLength: sequence.length,
                 showMismatchMarkers,
@@ -302,6 +310,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             ...noSequenceFeatures,
             ...hitFeatures,
         ];
+        if (!hitFeatures.length) {
+            throw new Error(`No BLASTP hits passed the current filters. Try lowering minimum identity below ${sanitizedMinIdentityPercent}% or including hypothetical/uncharacterized hits.`);
+        }
         addBlastFeatureTrack({
             appendToTrackId: appendToExistingTrack
                 ? appendTargetTrack?.trackId
@@ -360,9 +371,15 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             setHitLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), mode === 'blastp-genes' && localBlastDatabase ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
                                 setLocalAllHits(event.target.checked);
-                            } }), label: "All local BLAST hits" })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
+                            } }), label: "All local BLAST hits" })) : null, mode === 'blastp-genes' ? (_jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across each BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
+                            setMinIdentityPercent(Number(event.target.value));
+                        }, sx: { ml: 2, width: 210 } })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
+                        }, sx: { ml: 2, width: 210 } }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: includeGenericDescriptions, onChange: event => {
+                                        setIncludeGenericDescriptions(event.target.checked);
+                                    } }), label: "Include hypothetical/uncharacterized hits" }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: highlightLongerSubjectProteins, onChange: event => {
+                                        setHighlightLongerSubjectProteins(event.target.checked);
+                                    } }), label: "Highlight larger subject proteins" })] })) : null, _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendToExistingTrack(event.target.checked);
@@ -395,6 +412,12 @@ function sanitizeHspLimit(value) {
         return defaultHspLimit;
     }
     return Math.min(100, Math.max(1, Math.floor(value)));
+}
+function sanitizeMinIdentityPercent(value) {
+    if (!Number.isFinite(value)) {
+        return defaultMinIdentityPercent;
+    }
+    return Math.min(100, Math.max(0, Number(value)));
 }
 function sanitizeMaxRegionBp(value) {
     if (!Number.isFinite(value)) {

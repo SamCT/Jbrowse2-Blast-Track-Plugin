@@ -43,6 +43,7 @@ const defaultBlastDatabase = 'nr_cluster_seq'
 const defaultBlastProgram = 'blastp'
 const defaultHitLimit = 3
 const defaultHspLimit = 1
+const defaultMinIdentityPercent = 30
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi'
 
 export default function BlastProteinDialog({
@@ -77,6 +78,13 @@ export default function BlastProteinDialog({
   >([])
   const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false)
   const [localAllHits, setLocalAllHits] = useState(false)
+  const [minIdentityPercent, setMinIdentityPercent] = useState(
+    defaultMinIdentityPercent,
+  )
+  const [includeGenericDescriptions, setIncludeGenericDescriptions] =
+    useState(true)
+  const [highlightLongerSubjectProteins, setHighlightLongerSubjectProteins] =
+    useState(true)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState<unknown>()
@@ -130,6 +138,8 @@ export default function BlastProteinDialog({
       }
       const sanitizedHitLimit = sanitizeHitLimit(hitLimit)
       const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
+      const sanitizedMinIdentityPercent =
+        sanitizeMinIdentityPercent(minIdentityPercent)
       const displayedHitLimit =
         localBlastDatabase && localAllHits
           ? Number.POSITIVE_INFINITY
@@ -161,15 +171,23 @@ export default function BlastProteinDialog({
           : 'NCBI BLASTP'
       const blastFeatures = featuresFromBlastHits({
         blastProgram: resultBlastProgram,
+        highlightLongerSubjectProteins,
         hspLimit: sanitizedHspLimit,
         hits,
+        includeGenericDescriptions,
         idPrefix: sanitizeTrackId(`${feature.id()}_${rid}`),
+        minIdentityPercent: sanitizedMinIdentityPercent,
         queryFeature: feature,
         queryProteinLength: cleanedSequence.length,
         hitLimit: displayedHitLimit,
         showMismatchMarkers,
         source: resultSource,
       })
+      if (!blastFeatures.length) {
+        throw new Error(
+          `No BLASTP hits passed the current filters. Try lowering minimum identity below ${sanitizedMinIdentityPercent}% or including hypothetical/uncharacterized hits.`,
+        )
+      }
       const trackId = sanitizeTrackId(`blastp_${feature.id()}_${rid}`)
       addBlastFeatureTrack({
         appendToTrackId: appendToExistingTrack
@@ -306,6 +324,17 @@ export default function BlastProteinDialog({
         <TextField
           margin="normal"
           type="number"
+          label="Minimum identity (%)"
+          helperText="Weighted across the BLASTP hit before rendering"
+          value={minIdentityPercent}
+          onChange={event => {
+            setMinIdentityPercent(Number(event.target.value))
+          }}
+          sx={{ ml: 2, width: 210 }}
+        />
+        <TextField
+          margin="normal"
+          type="number"
           label="Alignment segments"
           helperText="1 = best segment, most sensitive; 3 = looser and may draw less accurate segments"
           value={hspLimit}
@@ -313,6 +342,28 @@ export default function BlastProteinDialog({
             setHspLimit(Number(event.target.value))
           }}
           sx={{ ml: 2, width: 210 }}
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={includeGenericDescriptions}
+              onChange={event => {
+                setIncludeGenericDescriptions(event.target.checked)
+              }}
+            />
+          }
+          label="Include hypothetical/uncharacterized hits"
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={highlightLongerSubjectProteins}
+              onChange={event => {
+                setHighlightLongerSubjectProteins(event.target.checked)
+              }}
+            />
+          }
+          label="Highlight larger subject proteins"
         />
         <FormControlLabel
           control={
@@ -392,6 +443,13 @@ function sanitizeHspLimit(value: number) {
     return defaultHspLimit
   }
   return Math.min(100, Math.max(1, Math.floor(value)))
+}
+
+function sanitizeMinIdentityPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return defaultMinIdentityPercent
+  }
+  return Math.min(100, Math.max(0, Number(value)))
 }
 
 function cleanProteinSequence(sequence: string) {

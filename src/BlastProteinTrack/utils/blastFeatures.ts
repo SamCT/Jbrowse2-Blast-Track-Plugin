@@ -50,9 +50,12 @@ interface HitRankingStats {
 
 export function featuresFromBlastHits({
   blastProgram = 'blastp',
+  highlightLongerSubjectProteins = true,
   hspLimit,
   hits,
+  includeGenericDescriptions = true,
   idPrefix,
+  minIdentityPercent = 0,
   queryFeature,
   queryProteinLength,
   hitLimit,
@@ -60,9 +63,12 @@ export function featuresFromBlastHits({
   source = 'NCBI BLASTP',
 }: {
   blastProgram?: string
+  highlightLongerSubjectProteins?: boolean
   hspLimit: number
   hits: BlastHit[]
+  includeGenericDescriptions?: boolean
   idPrefix?: string
+  minIdentityPercent?: number
   queryFeature: Feature
   queryProteinLength: number
   hitLimit: number
@@ -76,7 +82,13 @@ export function featuresFromBlastHits({
   const queryLength = Math.max(1, queryEnd - queryStart)
   const codingSegments = getCodingSegments(queryFeature)
 
-  return bestHits(hits, hitLimit, queryProteinLength).flatMap((hit, hitIndex) => {
+  return bestHits({
+    hitLimit,
+    hits,
+    includeGenericDescriptions,
+    minIdentityPercent,
+    queryProteinLength,
+  }).flatMap((hit, hitIndex) => {
     const descriptions = hit.description ?? []
     const description = displayDescription(descriptions)
     const allHsps = hit.hsps.filter(hasQueryRange)
@@ -86,10 +98,15 @@ export function featuresFromBlastHits({
     }
     const rankingStats = hitRankingStats(hit, queryProteinLength)
     const blastCandidateClass = candidateClass(rankingStats)
+    const visualCandidateClass =
+      !highlightLongerSubjectProteins &&
+      blastCandidateClass === 'longer subject match'
+        ? 'alignment match'
+        : blastCandidateClass
 
     const hspBlocks = hsps.flatMap((hsp, hspIndex) =>
       hspToCdsBlocks({
-        blastCandidateClass,
+        blastCandidateClass: visualCandidateClass,
         description,
         hitIndex,
         hsp,
@@ -133,21 +150,22 @@ export function featuresFromBlastHits({
     const end = Math.max(...hspBlocks.map(block => block.end))
     const label = hitLabel(description, hitIndex)
     const title = description.title?.trim()
-    const totalAlignLength = sum(hsps, 'align_len')
-    const totalIdentical = sum(hsps, 'identity')
-    const totalPositive = sum(hsps, 'positive')
-    const identity = weightedPercent(hsps, 'identity')
-    const positives = weightedPercent(hsps, 'positive')
-    const mismatches = totalMismatches(hsps)
-    const gaps = sum(hsps, 'gaps')
-    const evalue = bestEvalue(hsps)
-    const bitScore = bestBitScore(hsps)
-    const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
-    const bestHsp = [...hsps].sort(compareHsps)[0]
-    const subjectRange = hspSubjectRange(hsps)
-    const subjectFullLength = subjectProteinLength(hit, hsps)
-    const queryCoveredLengthAa = queryCoveredLength(hsps)
-    const subjectCoveredLength = subjectCoveredLengthAa(hsps)
+    const summaryHsps = allHsps
+    const totalAlignLength = sum(summaryHsps, 'align_len')
+    const totalIdentical = sum(summaryHsps, 'identity')
+    const totalPositive = sum(summaryHsps, 'positive')
+    const identity = weightedPercent(summaryHsps, 'identity')
+    const positives = weightedPercent(summaryHsps, 'positive')
+    const mismatches = totalMismatches(summaryHsps)
+    const gaps = sum(summaryHsps, 'gaps')
+    const evalue = bestEvalue(summaryHsps)
+    const bitScore = bestBitScore(summaryHsps)
+    const queryCoverage = queryCoveragePct(summaryHsps, queryProteinLength)
+    const bestHsp = [...summaryHsps].sort(compareHsps)[0]
+    const subjectRange = hspSubjectRange(summaryHsps)
+    const subjectFullLength = subjectProteinLength(hit, summaryHsps)
+    const queryCoveredLengthAa = queryCoveredLength(summaryHsps)
+    const subjectCoveredLength = subjectCoveredLengthAa(summaryHsps)
     const subjectRangeLength = subjectRange
       ? subjectRange.to - subjectRange.from + 1
       : undefined
@@ -176,9 +194,16 @@ export function featuresFromBlastHits({
         percentPositives: positives,
         mismatches,
         gaps,
-        hspCount: hsps.length,
-        candidateClass: blastCandidateClass,
-        blastCandidateClass,
+        hspCount: summaryHsps.length,
+        displayedHspCount: hsps.length,
+        renderedHspCount: hsps.length,
+        candidateClass: visualCandidateClass,
+        blastCandidateClass: visualCandidateClass,
+        unhighlightedBlastCandidateClass: blastCandidateClass,
+        subjectIsLongerThanQuery: rankingStats.isLongerSubjectMatch,
+        longerSubjectProtein: rankingStats.isLongerSubjectMatch,
+        highlightedLongerSubjectProtein:
+          highlightLongerSubjectProteins && rankingStats.isLongerSubjectMatch,
         subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
         strand: queryStrand,
         score: bitScore,
@@ -220,6 +245,9 @@ export function featuresFromBlastHits({
         deduplicatedProductKey: rankingStats.productKey,
         deduplicatedSubjectGeneKey: rankingStats.subjectGeneKey,
         rankingScore: rankingStats.rankingScore,
+        minIdentityFilterPercent: minIdentityPercent,
+        genericDescriptionsIncluded: includeGenericDescriptions,
+        highlightLongerSubjectProteins,
         maxHspsPerHit: hspLimit,
         availableHspCount: allHsps.length,
         mismatchMarkersShown: showMismatchMarkers,
@@ -554,17 +582,31 @@ function hspStats(hsp: BlastHsp) {
   }
 }
 
-function bestHits(
-  hits: BlastHit[],
-  hitLimit: number,
-  queryProteinLength: number,
-) {
+function bestHits({
+  hitLimit,
+  hits,
+  includeGenericDescriptions,
+  minIdentityPercent,
+  queryProteinLength,
+}: {
+  hitLimit: number
+  hits: BlastHit[]
+  includeGenericDescriptions: boolean
+  minIdentityPercent: number
+  queryProteinLength: number
+}) {
   const rankedHits = [...hits]
     .filter(hit => hit.hsps.some(hasQueryRange))
     .map(hit => ({
       hit,
       stats: hitRankingStats(hit, queryProteinLength),
     }))
+    .filter(({ stats }) => {
+      return (
+        stats.identity >= minIdentityPercent &&
+        (includeGenericDescriptions || stats.hasInformativeDescription)
+      )
+    })
     .sort(compareRankedHits)
 
   return selectDisplayedHits(rankedHits, hitLimit).map(({ hit }) => hit)
