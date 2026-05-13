@@ -140,14 +140,16 @@ function featureGroupKey(feature, geneFeatures) {
     const containingGene = featureType(feature) === 'gene'
         ? undefined
         : geneFeatures.find(gene => isTranscriptOfGene(feature, gene));
-    const identity = containingGene !== undefined
-        ? geneIdentityValues(containingGene)[0]
-        : (geneParentIds(feature)[0] ?? geneIdentityValues(feature)[0]);
+    if (containingGene) {
+        const identity = geneIdentityValues(containingGene)[0] ?? geneParentIds(feature)[0];
+        return identity
+            ? `${featureRefName(feature)}:${identity}`
+            : featureKey(containingGene);
+    }
+    const identity = geneParentIds(feature)[0] ?? geneIdentityValues(feature)[0];
     return identity
         ? `${featureRefName(feature)}:${identity}`
-        : containingGene
-            ? featureKey(containingGene)
-            : featureKey(feature);
+        : featureKey(feature);
 }
 function estimatedProteinLength(feature) {
     const embeddedSequence = extractProteinSequence(feature);
@@ -171,7 +173,8 @@ function geneParentIds(feature) {
     return normalizeFeatureValues(feature.get('Parent') ??
         feature.get('parent') ??
         feature.get('parents') ??
-        feature.get('transcript_parent'));
+        feature.get('transcript_parent') ??
+        feature.get('gene_id'));
 }
 function geneIdentityValues(feature) {
     return [
@@ -205,6 +208,7 @@ function normalizeFeatureIdentity(value) {
     return typeof value === 'string'
         ? value
             .replace(/^(gene|mrna|transcript)[:_-]/i, '')
+            .replace(/\.(?:mrna|transcript|t|isoform)?\d+$/i, '')
             .trim()
             .toLowerCase()
         : undefined;
