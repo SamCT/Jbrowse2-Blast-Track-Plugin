@@ -2,8 +2,8 @@ const blastToolName = 'BlastTrack';
 const submitIntervalMs = 10_000;
 const initialPollSeconds = 30;
 const waitingPollIntervalSeconds = 30;
-const maximumCandidateHits = 250;
-const maximumClusteredProteinCandidateHits = 300;
+const maximumCandidateHits = 100;
+const maximumClusteredProteinCandidateHits = 75;
 let submitQueue = Promise.resolve();
 let lastSubmitStartedAt = 0;
 export async function queryBlast({ query, blastDatabase, blastProgram, contactEmail, hitLimit, baseUrl, onProgress, }) {
@@ -160,12 +160,12 @@ function blastParams({ contactEmail, params, }) {
 function candidateHitLimit({ blastDatabase, blastProgram, displayHitLimit, }) {
     const requestedDisplayHits = Math.max(1, Math.floor(displayHitLimit));
     if (blastProgram === 'blastp' && blastDatabase === 'nr_cluster_seq') {
-        return Math.min(maximumClusteredProteinCandidateHits, Math.max(100, requestedDisplayHits * 50));
+        return Math.min(maximumClusteredProteinCandidateHits, Math.max(30, requestedDisplayHits * 15));
     }
     if (blastProgram === 'blastp' || blastProgram === 'quick-blastp') {
-        return Math.min(maximumCandidateHits, Math.max(100, requestedDisplayHits * 25));
+        return Math.min(maximumCandidateHits, Math.max(25, requestedDisplayHits * 10));
     }
-    return Math.min(100, Math.max(25, requestedDisplayHits * 10));
+    return Math.min(50, Math.max(25, requestedDisplayHits * 10));
 }
 async function textFetch(url, init) {
     const response = await fetch(url, init);
