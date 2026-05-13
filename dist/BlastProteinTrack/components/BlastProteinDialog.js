@@ -59,11 +59,11 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             });
             setLocalBlastDatabases(databases);
             if (!databases.length) {
-                throw new Error('No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.');
+                throw new Error('No precomputed BLASTP tables are configured for BlastTrack.');
             }
             setBlastDatabase(localBlastDatabaseValue(databases[0]));
             setBlastProgram('blastp');
-            setProgress(`Loaded ${databases.length} local protein BLAST database(s).`);
+            setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`);
         }
         catch (e) {
             console.error(e);
@@ -93,8 +93,9 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             const { hits, rid } = localBlastDatabase
                 ? await queryLocalBlast({
                     allHits: localAllHits,
+                    queryIds: precomputedBlastQueryIds(feature, featureName),
                     query,
-                    blastDatabase: localBlastDatabase.id,
+                    blastDatabase: localBlastDatabase,
                     blastProgram: 'blastp',
                     hitLimit: sanitizedHitLimit,
                     hspLimit: sanitizedHspLimit,
@@ -110,7 +111,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                 });
             const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram;
             const resultSource = localBlastDatabase
-                ? 'Local BLASTP'
+                ? 'Precomputed BLASTP'
                 : blastProgram === 'quick-blastp'
                     ? 'NCBI quick-blastp'
                     : 'NCBI BLASTP';
@@ -163,20 +164,20 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                                 isLocalBlastDatabaseValue(nextDatabase)) {
                                 setBlastProgram('blastp');
                             }
-                        }, sx: { mr: 2, minWidth: 180 }, children: [blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Local BLAST DBs" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                        }, sx: { mr: 2, minWidth: 180 }, children: [blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Precomputed BLASTP tables" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
                             void loadLocalDatabases();
-                        }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load local BLAST DBs" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
+                        }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load precomputed BLAST tables" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
                             isLocalBlastDatabaseValue(blastDatabase), onChange: event => {
                             setBlastProgram(event.target.value);
                         }, sx: { minWidth: 180 }, children: blastProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                 ? 'quick-blastp (faster NCBI protein BLAST)'
                                 : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { disabled: Boolean(localBlastDatabase && localAllHits), margin: "normal", type: "number", label: "Number of matches", helperText: localBlastDatabase
-                            ? 'Distinct subject proteins to keep unless all local hits is selected'
+                            ? 'Distinct subject proteins to keep unless all precomputed hits is selected'
                             : 'Distinct subject proteins to keep for this gene', value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), localBlastDatabase ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
                                 setLocalAllHits(event.target.checked);
-                            } }), label: "All local BLAST hits" })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across the BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
+                            } }), label: "All precomputed BLAST hits" })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across the BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
                             setMinIdentityPercent(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
@@ -191,7 +192,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                             } }), label: `Append to existing BLASTP track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length:", ' ', proteinLength === undefined
                                 ? 'detected when submitted'
                                 : `${proteinLength} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: localBlastDatabase
-                            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+                            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query ID; it does not run BLAST.'
                             : 'BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute.' }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
@@ -216,4 +217,75 @@ function sanitizeMinIdentityPercent(value) {
 }
 function cleanProteinSequence(sequence) {
     return sequence.replaceAll(/[^A-Za-z*]/g, '').toUpperCase();
+}
+function precomputedBlastQueryIds(feature, featureName) {
+    const json = feature.toJSON();
+    const bestTranscript = bestTranscriptFeature(json);
+    return uniqueStrings(uniqueStrings([
+        ...idsFromFeatureJson(bestTranscript),
+        ...idsFromFeatureJson(json),
+        stringValue(featureName),
+        stringValue(feature.id()),
+        stringValue(feature.get('id')),
+        stringValue(feature.get('name')),
+        stringValue(feature.get('gene_id')),
+        stringValue(feature.get('transcript_id')),
+        ...idsFromFeatureJson(...(json.subfeatures ?? [])),
+    ]).flatMap(id => idAliases(id)));
+}
+function bestTranscriptFeature(feature) {
+    const candidates = transcriptCandidates(feature);
+    return candidates.sort((a, b) => cdsLength(b) - cdsLength(a))[0];
+}
+function transcriptCandidates(feature) {
+    const subfeatures = feature.subfeatures ?? [];
+    return [
+        ...(feature.type === 'mRNA' || feature.type === 'transcript'
+            ? [feature]
+            : []),
+        ...subfeatures.flatMap(transcriptCandidates),
+    ];
+}
+function cdsLength(feature) {
+    return collectCds(feature).reduce((total, cds) => total + Math.max(0, (cds.end ?? 0) - (cds.start ?? 0)), 0);
+}
+function collectCds(feature) {
+    return [
+        ...(feature.type === 'CDS' ? [feature] : []),
+        ...(feature.subfeatures ?? []).flatMap(collectCds),
+    ];
+}
+function idsFromFeatureJson(...features) {
+    return features.flatMap(feature => feature
+        ? [
+            stringValue(feature.id),
+            stringValue(feature.name),
+            stringValue(feature.gene_id),
+            stringValue(feature.transcript_id),
+            stringValue(feature.protein_id),
+            stringValue(feature.Parent),
+            stringValue(feature.parent),
+        ]
+        : []);
+}
+function idAliases(id) {
+    const trimmed = id.trim();
+    const firstToken = trimmed.split(/\s+/)[0];
+    const withoutPrefix = firstToken.replace(/^(rna|transcript|mrna|cds|protein)[:-]/i, '');
+    return uniqueStrings([
+        trimmed,
+        firstToken,
+        withoutPrefix,
+        withoutPrefix.replace(/\.(?:p|protein)\d*$/i, ''),
+        withoutPrefix.replace(/\.prot$/i, ''),
+    ]);
+}
+function stringValue(value) {
+    const first = Array.isArray(value) ? value[0] : value;
+    return typeof first === 'string' || typeof first === 'number'
+        ? String(first)
+        : '';
+}
+function uniqueStrings(values) {
+    return [...new Set(values.map(value => value.trim()).filter(Boolean))];
 }

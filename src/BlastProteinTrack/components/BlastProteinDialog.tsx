@@ -108,12 +108,12 @@ export default function BlastProteinDialog({
       setLocalBlastDatabases(databases)
       if (!databases.length) {
         throw new Error(
-          'No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.',
+          'No precomputed BLASTP tables are configured for BlastTrack.',
         )
       }
       setBlastDatabase(localBlastDatabaseValue(databases[0]))
       setBlastProgram('blastp')
-      setProgress(`Loaded ${databases.length} local protein BLAST database(s).`)
+      setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`)
     } catch (e) {
       console.error(e)
       setError(e)
@@ -146,10 +146,11 @@ export default function BlastProteinDialog({
           : sanitizedHitLimit
       const query = `>${featureName}\n${cleanedSequence}`
       const { hits, rid } = localBlastDatabase
-        ? await queryLocalBlast({
+          ? await queryLocalBlast({
             allHits: localAllHits,
+            queryIds: precomputedBlastQueryIds(feature, featureName),
             query,
-            blastDatabase: localBlastDatabase.id,
+            blastDatabase: localBlastDatabase,
             blastProgram: 'blastp',
             hitLimit: sanitizedHitLimit,
             hspLimit: sanitizedHspLimit,
@@ -165,7 +166,7 @@ export default function BlastProteinDialog({
           })
       const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram
       const resultSource = localBlastDatabase
-        ? 'Local BLASTP'
+        ? 'Precomputed BLASTP'
         : blastProgram === 'quick-blastp'
           ? 'NCBI quick-blastp'
           : 'NCBI BLASTP'
@@ -245,7 +246,7 @@ export default function BlastProteinDialog({
           ))}
           {localBlastDatabases.length ? (
             <MenuItem disabled value="local-header">
-              Local BLAST DBs
+              Precomputed BLASTP tables
             </MenuItem>
           ) : null}
           {localBlastDatabases.map(database => (
@@ -265,7 +266,7 @@ export default function BlastProteinDialog({
           sx={{ mt: 2, ml: 1 }}
           variant="outlined"
         >
-          Load local BLAST DBs
+          Load precomputed BLAST tables
         </Button>
         <LocalBlastHelp />
         <TextField
@@ -299,7 +300,7 @@ export default function BlastProteinDialog({
           label="Number of matches"
           helperText={
             localBlastDatabase
-              ? 'Distinct subject proteins to keep unless all local hits is selected'
+              ? 'Distinct subject proteins to keep unless all precomputed hits is selected'
               : 'Distinct subject proteins to keep for this gene'
           }
           value={hitLimit}
@@ -318,7 +319,7 @@ export default function BlastProteinDialog({
                 }}
               />
             }
-            label="All local BLAST hits"
+            label="All precomputed BLAST hits"
           />
         ) : null}
         <TextField
@@ -406,7 +407,7 @@ export default function BlastProteinDialog({
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           {localBlastDatabase
-            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query ID; it does not run BLAST.'
             : 'BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute.'}
         </Typography>
         {running ? (
@@ -454,4 +455,108 @@ function sanitizeMinIdentityPercent(value: number) {
 
 function cleanProteinSequence(sequence: string) {
   return sequence.replaceAll(/[^A-Za-z*]/g, '').toUpperCase()
+}
+
+interface QueryIdFeatureJson {
+  end?: number
+  gene_id?: unknown
+  id?: unknown
+  name?: unknown
+  parent?: unknown
+  Parent?: unknown
+  protein_id?: unknown
+  start?: number
+  subfeatures?: QueryIdFeatureJson[]
+  transcript_id?: unknown
+  type?: string
+}
+
+function precomputedBlastQueryIds(feature: Feature, featureName: string) {
+  const json = feature.toJSON() as QueryIdFeatureJson
+  const bestTranscript = bestTranscriptFeature(json)
+  return uniqueStrings(
+    uniqueStrings([
+      ...idsFromFeatureJson(bestTranscript),
+      ...idsFromFeatureJson(json),
+      stringValue(featureName),
+      stringValue(feature.id()),
+      stringValue(feature.get('id')),
+      stringValue(feature.get('name')),
+      stringValue(feature.get('gene_id')),
+      stringValue(feature.get('transcript_id')),
+      ...idsFromFeatureJson(...(json.subfeatures ?? [])),
+    ]).flatMap(id => idAliases(id)),
+  )
+}
+
+function bestTranscriptFeature(feature: QueryIdFeatureJson) {
+  const candidates = transcriptCandidates(feature)
+  return candidates.sort((a, b) => cdsLength(b) - cdsLength(a))[0]
+}
+
+function transcriptCandidates(feature: QueryIdFeatureJson): QueryIdFeatureJson[] {
+  const subfeatures = feature.subfeatures ?? []
+  return [
+    ...(feature.type === 'mRNA' || feature.type === 'transcript'
+      ? [feature]
+      : []),
+    ...subfeatures.flatMap(transcriptCandidates),
+  ]
+}
+
+function cdsLength(feature: QueryIdFeatureJson) {
+  return collectCds(feature).reduce(
+    (total, cds) => total + Math.max(0, (cds.end ?? 0) - (cds.start ?? 0)),
+    0,
+  )
+}
+
+function collectCds(feature: QueryIdFeatureJson): QueryIdFeatureJson[] {
+  return [
+    ...(feature.type === 'CDS' ? [feature] : []),
+    ...(feature.subfeatures ?? []).flatMap(collectCds),
+  ]
+}
+
+function idsFromFeatureJson(...features: (QueryIdFeatureJson | undefined)[]) {
+  return features.flatMap(feature =>
+    feature
+      ? [
+          stringValue(feature.id),
+          stringValue(feature.name),
+          stringValue(feature.gene_id),
+          stringValue(feature.transcript_id),
+          stringValue(feature.protein_id),
+          stringValue(feature.Parent),
+          stringValue(feature.parent),
+        ]
+      : [],
+  )
+}
+
+function idAliases(id: string) {
+  const trimmed = id.trim()
+  const firstToken = trimmed.split(/\s+/)[0]
+  const withoutPrefix = firstToken.replace(
+    /^(rna|transcript|mrna|cds|protein)[:-]/i,
+    '',
+  )
+  return uniqueStrings([
+    trimmed,
+    firstToken,
+    withoutPrefix,
+    withoutPrefix.replace(/\.(?:p|protein)\d*$/i, ''),
+    withoutPrefix.replace(/\.prot$/i, ''),
+  ])
+}
+
+function stringValue(value: unknown) {
+  const first = Array.isArray(value) ? value[0] : value
+  return typeof first === 'string' || typeof first === 'number'
+    ? String(first)
+    : ''
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map(value => value.trim()).filter(Boolean))]
 }

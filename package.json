@@ -26,6 +26,9 @@
     "genomics",
     "bioinformatics"
   ],
+  "dependencies": {
+    "@gmod/tabix": "^3.3.4"
+  },
   "scripts": {
     "clean": "rimraf dist",
     "build": "npm run clean && tsc && node esbuild.mjs",

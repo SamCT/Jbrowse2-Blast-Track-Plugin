@@ -6,6 +6,7 @@ import BlastProteinDialog from './components/BlastProteinDialog'
 import BlastSelectionDialog, {
   type SelectionBlastMode,
 } from './components/BlastSelectionDialog'
+import { setPluginPrecomputedBlastTables } from './utils/localBlast'
 
 import type PluginManager from '@jbrowse/core/PluginManager'
 import type { PluggableElementType } from '@jbrowse/core/pluggableElementTypes'
@@ -140,6 +141,7 @@ function regionBlastMenuItem(
 }
 
 export default function BlastProteinTrackF(pluginManager: PluginManager) {
+  setPluginPrecomputedBlastTables(pluginManager)
   pluginManager.addToExtensionPoint(
     'Core-extendPluggableElement',
     (elt: PluggableElementType) => {

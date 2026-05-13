@@ -2,7 +2,7 @@
 
 ## Milestone 001: Local BLAST Table Import
 
-Goal: let users load BLAST results produced outside BlastTrack, such as local BLAST+ searches, HPC cluster jobs, or searches against `makeblastdb` databases, and render them as same-view BlastTrack result tracks without submitting sequence to NCBI or requiring BlastTrack to run the server-side job.
+Goal: let users load BLAST results produced outside BlastTrack, such as HPC cluster jobs or searches against local BLAST databases, and render them as same-view BlastTrack result tracks without submitting sequence to NCBI or requiring BlastTrack to run a server-side job.
 
 ### User Workflow
 
@@ -22,8 +22,7 @@ Status: planned.
 
 Status: planned.
 
-- User or admin creates BLAST databases on the HPC with `makeblastdb`.
-- User runs `blastp`, `blastn`, `tblastn`, or later `tblastx` outside JBrowse using scheduler/HPC resources.
+- User runs `blastp`, `blastn`, `tblastn`, or later `tblastx` outside JBrowse using scheduler/HPC resources and any appropriate local database setup.
 - The completed BLAST table is made available to JBrowse through an HTTPS-accessible URL or selected as a local file.
 - BlastTrack parses and renders the completed table only; it does not need to submit the job, poll a queue, or access raw BLAST database files.
 - Future config can predefine named completed-result tables, but arbitrary server filesystem paths should not be exposed to the browser.

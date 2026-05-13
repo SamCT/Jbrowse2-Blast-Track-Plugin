@@ -156,12 +156,12 @@ export default function BlastSelectionDialog({
       setLocalBlastDatabases(databases)
       if (!databases.length) {
         throw new Error(
-          'No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.',
+          'No precomputed BLASTP tables are configured for BlastTrack.',
         )
       }
       setBlastDatabase(localBlastDatabaseValue(databases[0]))
       setBlastProgram('blastp')
-      setProgress(`Loaded ${databases.length} local BLAST database(s).`)
+      setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`)
     } catch (e) {
       console.error(e)
       setError(e)
@@ -267,6 +267,7 @@ export default function BlastSelectionDialog({
       header: string
       idPrefix: string
       name: string
+      queryIds: string[]
       sequence: string
     }[] = []
     const noSequenceFeatures: FromConfigFeature[] = []
@@ -300,6 +301,7 @@ export default function BlastSelectionDialog({
           header: sanitizeFastaHeader(`gene_${index + 1}_${name}`),
           idPrefix,
           name,
+          queryIds: precomputedBlastQueryIds(feature, name),
           sequence,
         })
       } else {
@@ -342,12 +344,13 @@ export default function BlastSelectionDialog({
       ? await queryLocalBlastReports({
           allHits: localAllHits,
           query,
-          blastDatabase: localBlastDatabase.id,
+          queryIds: queries.flatMap(({ queryIds }) => queryIds),
+          blastDatabase: localBlastDatabase,
           blastProgram: 'blastp',
           hitLimit: sanitizedHitLimit,
           hspLimit: sanitizedHspLimit,
           onProgress: message => {
-            setProgress(`Local BLASTP ${queries.length} genes: ${message}`)
+            setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`)
           },
         })
       : await queryBlastReports({
@@ -363,14 +366,15 @@ export default function BlastSelectionDialog({
 
     const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram
     const resultSource = localBlastDatabase
-      ? 'Local BLASTP'
+      ? 'Precomputed BLASTP'
       : blastProgram === 'quick-blastp'
         ? 'NCBI quick-blastp'
         : 'NCBI BLASTP'
     const hitFeaturesByGene = new Map<Feature, FromConfigFeature[]>()
     const reportMatchesByGene = new Map<Feature, QueryReportMatch>()
-    const hitFeatures = queries.flatMap(({ feature, header, idPrefix, sequence }, index) => {
+    const hitFeatures = queries.flatMap(({ feature, header, idPrefix, queryIds, sequence }, index) => {
       const reportMatch = reportForQuery({
+        candidateIds: [header, ...queryIds],
         fallbackIndex: index,
         header,
         queryCount: queries.length,
@@ -504,7 +508,7 @@ export default function BlastSelectionDialog({
               ))}
               {localBlastDatabases.length ? (
                 <MenuItem disabled value="local-header">
-                  Local BLAST DBs
+                  Precomputed BLASTP tables
                 </MenuItem>
               ) : null}
               {localBlastDatabases.map(database => (
@@ -524,7 +528,7 @@ export default function BlastSelectionDialog({
               sx={{ mt: 2, ml: 1 }}
               variant="outlined"
             >
-              Load local BLAST DBs
+              Load precomputed BLAST tables
             </Button>
             <LocalBlastHelp />
             <TextField
@@ -603,7 +607,7 @@ export default function BlastSelectionDialog({
                 }}
               />
             }
-            label="All local BLAST hits"
+            label="All precomputed BLAST hits"
           />
         ) : null}
         {mode === 'blastp-genes' ? (
@@ -697,7 +701,7 @@ export default function BlastSelectionDialog({
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           {localBlastDatabase
-            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query IDs; it does not run BLAST.'
             : 'BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute.'}
         </Typography>
         {running ? (
@@ -785,19 +789,27 @@ interface QueryReportMatch {
 }
 
 function reportForQuery({
+  candidateIds,
   fallbackIndex,
   header,
   queryCount,
   reports,
 }: {
+  candidateIds?: string[]
   fallbackIndex: number
   header: string
   queryCount: number
   reports: BlastQueryReport[]
 }): QueryReportMatch {
-  const normalizedHeader = normalizeReportId(header)
+  const normalizedIds = (candidateIds ?? [header])
+    .map(normalizeReportId)
+    .filter(Boolean)
   const queryIdMatch = reports.find(
-    report => normalizeReportId(report.queryId) === normalizedHeader,
+    report =>
+      Boolean(
+        normalizeReportId(report.queryId) &&
+          normalizedIds.includes(normalizeReportId(report.queryId)),
+      ),
   )
   if (queryIdMatch) {
     return { matchedBy: 'query_id', report: queryIdMatch }
@@ -808,10 +820,11 @@ function reportForQuery({
     if (!normalizedTitle) {
       return false
     }
-    return (
-      normalizedTitle === normalizedHeader ||
-      normalizedTitle.startsWith(`${normalizedHeader}_`) ||
-      normalizedTitle.includes(`_${normalizedHeader}_`)
+    return normalizedIds.some(
+      normalizedId =>
+        normalizedTitle === normalizedId ||
+        normalizedTitle.startsWith(`${normalizedId}_`) ||
+        normalizedTitle.includes(`_${normalizedId}_`),
     )
   })
   if (queryTitleMatch) {
@@ -827,6 +840,110 @@ function reportForQuery({
 
 function normalizeReportId(value?: string) {
   return value?.replaceAll(/[^A-Za-z0-9]+/g, '_').replaceAll(/^_+|_+$/g, '')
+}
+
+interface QueryIdFeatureJson {
+  end?: number
+  gene_id?: unknown
+  id?: unknown
+  name?: unknown
+  parent?: unknown
+  Parent?: unknown
+  protein_id?: unknown
+  start?: number
+  subfeatures?: QueryIdFeatureJson[]
+  transcript_id?: unknown
+  type?: string
+}
+
+function precomputedBlastQueryIds(feature: Feature, featureName: string) {
+  const json = feature.toJSON() as QueryIdFeatureJson
+  const bestTranscript = bestTranscriptFeature(json)
+  return uniqueStrings(
+    uniqueStrings([
+      ...idsFromFeatureJson(bestTranscript),
+      ...idsFromFeatureJson(json),
+      stringValue(featureName),
+      stringValue(feature.id()),
+      stringValue(feature.get('id')),
+      stringValue(feature.get('name')),
+      stringValue(feature.get('gene_id')),
+      stringValue(feature.get('transcript_id')),
+      ...idsFromFeatureJson(...(json.subfeatures ?? [])),
+    ]).flatMap(id => idAliases(id)),
+  )
+}
+
+function bestTranscriptFeature(feature: QueryIdFeatureJson) {
+  const candidates = transcriptCandidates(feature)
+  return candidates.sort((a, b) => cdsLength(b) - cdsLength(a))[0]
+}
+
+function transcriptCandidates(feature: QueryIdFeatureJson): QueryIdFeatureJson[] {
+  const subfeatures = feature.subfeatures ?? []
+  return [
+    ...(feature.type === 'mRNA' || feature.type === 'transcript'
+      ? [feature]
+      : []),
+    ...subfeatures.flatMap(transcriptCandidates),
+  ]
+}
+
+function cdsLength(feature: QueryIdFeatureJson) {
+  return collectCds(feature).reduce(
+    (total, cds) => total + Math.max(0, (cds.end ?? 0) - (cds.start ?? 0)),
+    0,
+  )
+}
+
+function collectCds(feature: QueryIdFeatureJson): QueryIdFeatureJson[] {
+  return [
+    ...(feature.type === 'CDS' ? [feature] : []),
+    ...(feature.subfeatures ?? []).flatMap(collectCds),
+  ]
+}
+
+function idsFromFeatureJson(...features: (QueryIdFeatureJson | undefined)[]) {
+  return features.flatMap(feature =>
+    feature
+      ? [
+          stringValue(feature.id),
+          stringValue(feature.name),
+          stringValue(feature.gene_id),
+          stringValue(feature.transcript_id),
+          stringValue(feature.protein_id),
+          stringValue(feature.Parent),
+          stringValue(feature.parent),
+        ]
+      : [],
+  )
+}
+
+function idAliases(id: string) {
+  const trimmed = id.trim()
+  const firstToken = trimmed.split(/\s+/)[0]
+  const withoutPrefix = firstToken.replace(
+    /^(rna|transcript|mrna|cds|protein)[:-]/i,
+    '',
+  )
+  return uniqueStrings([
+    trimmed,
+    firstToken,
+    withoutPrefix,
+    withoutPrefix.replace(/\.(?:p|protein)\d*$/i, ''),
+    withoutPrefix.replace(/\.prot$/i, ''),
+  ])
+}
+
+function stringValue(value: unknown) {
+  const first = Array.isArray(value) ? value[0] : value
+  return typeof first === 'string' || typeof first === 'number'
+    ? String(first)
+    : ''
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map(value => value.trim()).filter(Boolean))]
 }
 
 function wrapSequence(sequence: string) {

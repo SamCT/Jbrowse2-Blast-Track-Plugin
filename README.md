@@ -2,7 +2,7 @@
 
 README to be written.
 
-## Local BLASTP Databases
+## Precomputed BLASTP Tables
 
-See [docs/local-blastdb.md](docs/local-blastdb.md) for the current local
-`makeblastdb` setup, including how local databases appear to the plugin.
+See [docs/local-blastdb.md](docs/local-blastdb.md) for the current static
+BLASTP table workflow.

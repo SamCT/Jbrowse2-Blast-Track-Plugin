@@ -3,6 +3,7 @@ import ManageSearchIcon from '@mui/icons-material/ManageSearch';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import BlastProteinDialog from './components/BlastProteinDialog';
 import BlastSelectionDialog from './components/BlastSelectionDialog';
+import { setPluginPrecomputedBlastTables } from './utils/localBlast';
 function isLinearBasicDisplay(elt) {
     return elt.name === 'LinearBasicDisplay';
 }
@@ -104,6 +105,7 @@ function regionBlastMenuItem(view, mode) {
     };
 }
 export default function BlastProteinTrackF(pluginManager) {
+    setPluginPrecomputedBlastTables(pluginManager);
     pluginManager.addToExtensionPoint('Core-extendPluggableElement', (elt) => {
         if (isLinearBasicDisplay(elt)) {
             elt.stateModel = extendDisplayStateModel(elt.stateModel);

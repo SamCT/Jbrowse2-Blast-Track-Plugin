@@ -92,11 +92,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             });
             setLocalBlastDatabases(databases);
             if (!databases.length) {
-                throw new Error('No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.');
+                throw new Error('No precomputed BLASTP tables are configured for BlastTrack.');
             }
             setBlastDatabase(localBlastDatabaseValue(databases[0]));
             setBlastProgram('blastp');
-            setProgress(`Loaded ${databases.length} local BLAST database(s).`);
+            setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`);
         }
         catch (e) {
             console.error(e);
@@ -199,6 +199,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                     header: sanitizeFastaHeader(`gene_${index + 1}_${name}`),
                     idPrefix,
                     name,
+                    queryIds: precomputedBlastQueryIds(feature, name),
                     sequence,
                 });
             }
@@ -233,12 +234,13 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             ? await queryLocalBlastReports({
                 allHits: localAllHits,
                 query,
-                blastDatabase: localBlastDatabase.id,
+                queryIds: queries.flatMap(({ queryIds }) => queryIds),
+                blastDatabase: localBlastDatabase,
                 blastProgram: 'blastp',
                 hitLimit: sanitizedHitLimit,
                 hspLimit: sanitizedHspLimit,
                 onProgress: message => {
-                    setProgress(`Local BLASTP ${queries.length} genes: ${message}`);
+                    setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`);
                 },
             })
             : await queryBlastReports({
@@ -253,14 +255,15 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             });
         const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram;
         const resultSource = localBlastDatabase
-            ? 'Local BLASTP'
+            ? 'Precomputed BLASTP'
             : blastProgram === 'quick-blastp'
                 ? 'NCBI quick-blastp'
                 : 'NCBI BLASTP';
         const hitFeaturesByGene = new Map();
         const reportMatchesByGene = new Map();
-        const hitFeatures = queries.flatMap(({ feature, header, idPrefix, sequence }, index) => {
+        const hitFeatures = queries.flatMap(({ feature, header, idPrefix, queryIds, sequence }, index) => {
             const reportMatch = reportForQuery({
+                candidateIds: [header, ...queryIds],
                 fallbackIndex: index,
                 header,
                 queryCount: queries.length,
@@ -354,9 +357,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                         isLocalBlastDatabaseValue(nextDatabase)) {
                                         setBlastProgram('blastp');
                                     }
-                                }, sx: { mr: 2, minWidth: 180 }, children: [proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Local BLAST DBs" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                                }, sx: { mr: 2, minWidth: 180 }, children: [proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Precomputed BLASTP tables" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
                                     void loadLocalDatabases();
-                                }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load local BLAST DBs" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
+                                }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load precomputed BLAST tables" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
                                     isLocalBlastDatabaseValue(blastDatabase), onChange: event => {
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
@@ -371,7 +374,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             setHitLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), mode === 'blastp-genes' && localBlastDatabase ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
                                 setLocalAllHits(event.target.checked);
-                            } }), label: "All local BLAST hits" })) : null, mode === 'blastp-genes' ? (_jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across each BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
+                            } }), label: "All precomputed BLAST hits" })) : null, mode === 'blastp-genes' ? (_jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across each BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
                             setMinIdentityPercent(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
@@ -386,7 +389,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes, using the longest detected isoform per gene. Hits are drawn over each query gene CDS.'
                             : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: localBlastDatabase
-                            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+                            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query IDs; it does not run BLAST.'
                             : 'BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute.' }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
@@ -437,9 +440,12 @@ function fastaRecord(header, sequence) {
 function sanitizeFastaHeader(header) {
     return sanitizeTrackId(header).slice(0, 120) || 'query';
 }
-function reportForQuery({ fallbackIndex, header, queryCount, reports, }) {
-    const normalizedHeader = normalizeReportId(header);
-    const queryIdMatch = reports.find(report => normalizeReportId(report.queryId) === normalizedHeader);
+function reportForQuery({ candidateIds, fallbackIndex, header, queryCount, reports, }) {
+    const normalizedIds = (candidateIds ?? [header])
+        .map(normalizeReportId)
+        .filter(Boolean);
+    const queryIdMatch = reports.find(report => Boolean(normalizeReportId(report.queryId) &&
+        normalizedIds.includes(normalizeReportId(report.queryId))));
     if (queryIdMatch) {
         return { matchedBy: 'query_id', report: queryIdMatch };
     }
@@ -448,9 +454,9 @@ function reportForQuery({ fallbackIndex, header, queryCount, reports, }) {
         if (!normalizedTitle) {
             return false;
         }
-        return (normalizedTitle === normalizedHeader ||
-            normalizedTitle.startsWith(`${normalizedHeader}_`) ||
-            normalizedTitle.includes(`_${normalizedHeader}_`));
+        return normalizedIds.some(normalizedId => normalizedTitle === normalizedId ||
+            normalizedTitle.startsWith(`${normalizedId}_`) ||
+            normalizedTitle.includes(`_${normalizedId}_`));
     });
     if (queryTitleMatch) {
         return { matchedBy: 'query_title', report: queryTitleMatch };
@@ -462,6 +468,77 @@ function reportForQuery({ fallbackIndex, header, queryCount, reports, }) {
 }
 function normalizeReportId(value) {
     return value?.replaceAll(/[^A-Za-z0-9]+/g, '_').replaceAll(/^_+|_+$/g, '');
+}
+function precomputedBlastQueryIds(feature, featureName) {
+    const json = feature.toJSON();
+    const bestTranscript = bestTranscriptFeature(json);
+    return uniqueStrings(uniqueStrings([
+        ...idsFromFeatureJson(bestTranscript),
+        ...idsFromFeatureJson(json),
+        stringValue(featureName),
+        stringValue(feature.id()),
+        stringValue(feature.get('id')),
+        stringValue(feature.get('name')),
+        stringValue(feature.get('gene_id')),
+        stringValue(feature.get('transcript_id')),
+        ...idsFromFeatureJson(...(json.subfeatures ?? [])),
+    ]).flatMap(id => idAliases(id)));
+}
+function bestTranscriptFeature(feature) {
+    const candidates = transcriptCandidates(feature);
+    return candidates.sort((a, b) => cdsLength(b) - cdsLength(a))[0];
+}
+function transcriptCandidates(feature) {
+    const subfeatures = feature.subfeatures ?? [];
+    return [
+        ...(feature.type === 'mRNA' || feature.type === 'transcript'
+            ? [feature]
+            : []),
+        ...subfeatures.flatMap(transcriptCandidates),
+    ];
+}
+function cdsLength(feature) {
+    return collectCds(feature).reduce((total, cds) => total + Math.max(0, (cds.end ?? 0) - (cds.start ?? 0)), 0);
+}
+function collectCds(feature) {
+    return [
+        ...(feature.type === 'CDS' ? [feature] : []),
+        ...(feature.subfeatures ?? []).flatMap(collectCds),
+    ];
+}
+function idsFromFeatureJson(...features) {
+    return features.flatMap(feature => feature
+        ? [
+            stringValue(feature.id),
+            stringValue(feature.name),
+            stringValue(feature.gene_id),
+            stringValue(feature.transcript_id),
+            stringValue(feature.protein_id),
+            stringValue(feature.Parent),
+            stringValue(feature.parent),
+        ]
+        : []);
+}
+function idAliases(id) {
+    const trimmed = id.trim();
+    const firstToken = trimmed.split(/\s+/)[0];
+    const withoutPrefix = firstToken.replace(/^(rna|transcript|mrna|cds|protein)[:-]/i, '');
+    return uniqueStrings([
+        trimmed,
+        firstToken,
+        withoutPrefix,
+        withoutPrefix.replace(/\.(?:p|protein)\d*$/i, ''),
+        withoutPrefix.replace(/\.prot$/i, ''),
+    ]);
+}
+function stringValue(value) {
+    const first = Array.isArray(value) ? value[0] : value;
+    return typeof first === 'string' || typeof first === 'number'
+        ? String(first)
+        : '';
+}
+function uniqueStrings(values) {
+    return [...new Set(values.map(value => value.trim()).filter(Boolean))];
 }
 function wrapSequence(sequence) {
     return sequence.match(/.{1,60}/g)?.join('\n') ?? sequence;
