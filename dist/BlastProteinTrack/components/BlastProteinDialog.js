@@ -8,7 +8,7 @@ import LocalBlastHelp from './LocalBlastHelp';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
-import { fetchLocalBlastDatabases, isLocalBlastDatabaseValue, localBlastDatabaseValue, queryLocalBlast, selectedLocalBlastDatabase, } from '../utils/localBlast';
+import { fetchLocalBlastDatabases, localBlastDatabaseValue, queryLocalBlast, selectedLocalBlastDatabase, } from '../utils/localBlast';
 import { queryBlast } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
 const blastDatabaseOptions = ['nr', 'nr_cluster_seq'];
@@ -33,6 +33,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [hitLimit, setHitLimit] = useState(defaultHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [localBlastDatabases, setLocalBlastDatabases] = useState([]);
+    const [precomputedBlastTableValue, setPrecomputedBlastTableValue] = useState('');
     const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false);
     const [localAllHits, setLocalAllHits] = useState(false);
     const [minIdentityPercent, setMinIdentityPercent] = useState(defaultMinIdentityPercent);
@@ -45,9 +46,9 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
     const [running, setRunning] = useState(false);
     const [appendToExistingTrack, setAppendToExistingTrack] = useState(false);
     const appendTargetTrack = appendableBlastTracks[0];
-    const localBlastDatabase = selectedLocalBlastDatabase({
+    const precomputedBlastTable = selectedLocalBlastDatabase({
         databases: localBlastDatabases,
-        value: blastDatabase,
+        value: precomputedBlastTableValue,
     });
     async function loadLocalDatabases() {
         try {
@@ -61,8 +62,7 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             if (!databases.length) {
                 throw new Error('No precomputed BLASTP tables are configured for BlastTrack.');
             }
-            setBlastDatabase(localBlastDatabaseValue(databases[0]));
-            setBlastProgram('blastp');
+            setPrecomputedBlastTableValue(localBlastDatabaseValue(databases[0]));
             setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`);
         }
         catch (e) {
@@ -74,9 +74,19 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
         }
     }
     async function runBlast() {
+        await runBlastSource('ncbi');
+    }
+    async function runPrecomputedBlast() {
+        await runBlastSource('precomputed');
+    }
+    async function runBlastSource(source) {
         try {
             setRunning(true);
             setError(undefined);
+            const selectedPrecomputedTable = source === 'precomputed' ? precomputedBlastTable : undefined;
+            if (source === 'precomputed' && !selectedPrecomputedTable) {
+                throw new Error('Choose a precomputed BLASTP table first.');
+            }
             setProgress(`Preparing protein sequence for ${featureName}...`);
             const cleanedSequence = cleanProteinSequence((await getProteinSequence({ feature, view })) ?? '');
             setProteinLength(cleanedSequence.length);
@@ -86,16 +96,16 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             const sanitizedHitLimit = sanitizeHitLimit(hitLimit);
             const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
             const sanitizedMinIdentityPercent = sanitizeMinIdentityPercent(minIdentityPercent);
-            const displayedHitLimit = localBlastDatabase && localAllHits
+            const displayedHitLimit = selectedPrecomputedTable && localAllHits
                 ? Number.POSITIVE_INFINITY
                 : sanitizedHitLimit;
             const query = `>${featureName}\n${cleanedSequence}`;
-            const { hits, rid } = localBlastDatabase
+            const { hits, rid } = selectedPrecomputedTable
                 ? await queryLocalBlast({
                     allHits: localAllHits,
                     queryIds: precomputedBlastQueryIds(feature, featureName),
                     query,
-                    blastDatabase: localBlastDatabase,
+                    blastDatabase: selectedPrecomputedTable,
                     blastProgram: 'blastp',
                     hitLimit: sanitizedHitLimit,
                     hspLimit: sanitizedHspLimit,
@@ -109,8 +119,8 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                     baseUrl: ncbiBlastUrl,
                     onProgress: setProgress,
                 });
-            const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram;
-            const resultSource = localBlastDatabase
+            const resultBlastProgram = selectedPrecomputedTable ? 'blastp' : blastProgram;
+            const resultSource = selectedPrecomputedTable
                 ? 'Precomputed BLASTP'
                 : blastProgram === 'quick-blastp'
                     ? 'NCBI quick-blastp'
@@ -138,10 +148,12 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                     ? appendTargetTrack?.trackId
                     : undefined,
                 assemblyName,
-                baseUrl: localBlastDatabase ? undefined : ncbiBlastUrl,
+                baseUrl: selectedPrecomputedTable ? undefined : ncbiBlastUrl,
                 blastProgram: 'blastp',
                 features: blastFeatures,
-                name: `BLASTP hits - ${featureName}`,
+                name: selectedPrecomputedTable
+                    ? `Precomputed BLASTP hits - ${featureName}`
+                    : `BLASTP hits - ${featureName}`,
                 rid,
                 trackId,
                 view,
@@ -156,28 +168,19 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
             setRunning(false);
         }
     }
-    return (_jsxs(Dialog, { maxWidth: "lg", title: "BLAST protein and load track", open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsxs(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
-                            const nextDatabase = event.target
-                                .value;
+    return (_jsxs(Dialog, { maxWidth: "lg", title: "BLAST protein and load track", open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, _jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
+                            const nextDatabase = event.target.value;
                             setBlastDatabase(nextDatabase);
-                            if (nextDatabase === 'nr_cluster_seq' ||
-                                isLocalBlastDatabaseValue(nextDatabase)) {
+                            if (nextDatabase === 'nr_cluster_seq') {
                                 setBlastProgram('blastp');
                             }
-                        }, sx: { mr: 2, minWidth: 180 }, children: [blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Precomputed BLASTP tables" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
-                            void loadLocalDatabases();
-                        }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load precomputed BLAST tables" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
-                            isLocalBlastDatabaseValue(blastDatabase), onChange: event => {
+                        }, sx: { mr: 2, minWidth: 180 }, children: blastDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq', onChange: event => {
                             setBlastProgram(event.target.value);
                         }, sx: { minWidth: 180 }, children: blastProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                 ? 'quick-blastp (faster NCBI protein BLAST)'
-                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { disabled: Boolean(localBlastDatabase && localAllHits), margin: "normal", type: "number", label: "Number of matches", helperText: localBlastDatabase
-                            ? 'Distinct subject proteins to keep unless all precomputed hits is selected'
-                            : 'Distinct subject proteins to keep for this gene', value: hitLimit, onChange: event => {
+                                : 'blastp (standard, slower)' }, option))) }), _jsx(TextField, { disabled: Boolean(precomputedBlastTable && localAllHits), margin: "normal", type: "number", label: "Number of matches", helperText: "Distinct subject proteins to keep for this gene", value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: 210 } }), localBlastDatabase ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
-                                setLocalAllHits(event.target.checked);
-                            } }), label: "All precomputed BLAST hits" })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across the BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
+                        }, sx: { ml: 2, width: 210 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Minimum identity (%)", helperText: "Weighted across the BLASTP hit before rendering", value: minIdentityPercent, onChange: event => {
                             setMinIdentityPercent(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
@@ -191,11 +194,17 @@ export default function BlastProteinDialog({ handleClose, model, feature, }) {
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing BLASTP track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Query feature: ", featureName] }), _jsxs(Typography, { variant: "body2", children: ["Protein length:", ' ', proteinLength === undefined
                                 ? 'detected when submitted'
-                                : `${proteinLength} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: localBlastDatabase
-                            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query ID; it does not run BLAST.'
-                            : 'BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute.' }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
+                                : `${proteinLength} aa`] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BLASTP protein HSPs will be projected onto CDS exons. Blue blocks are aligned HSP segments. Mismatch and gap counts remain available in feature details; red mismatch and yellow gap ticks are optional because dense alignments can become hard to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID every 30 seconds after the first check." }), _jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                            void loadLocalDatabases();
+                        }, sx: { mt: 1, mr: 1 }, variant: "outlined", children: "Load tables" }), _jsx(LocalBlastHelp, {}), localBlastDatabases.length ? (_jsx(TextField, { margin: "normal", select: true, label: "Precomputed table", value: precomputedBlastTableValue, onChange: event => {
+                            setPrecomputedBlastTableValue(event.target.value);
+                        }, sx: { ml: 2, minWidth: 260 }, children: localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id))) })) : null, precomputedBlastTable ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
+                                setLocalAllHits(event.target.checked);
+                            } }), label: "All precomputed BLAST hits" })) : null, _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Precomputed tables read static tabix-indexed BLASTP rows by clicked query ID; they do not submit a BLAST job." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
-                        }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
+                        }, variant: "contained", children: "Submit NCBI BLAST" }), _jsx(Button, { disabled: running || !precomputedBlastTable, onClick: () => {
+                            void runPrecomputedBlast();
+                        }, variant: "outlined", children: "Load Precomputed Hits" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }
 function sanitizeHitLimit(value) {
     if (!Number.isFinite(value)) {

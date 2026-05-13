@@ -25,7 +25,6 @@ import {
 import { getFeatureName } from '../utils/featureSequence'
 import {
   fetchLocalBlastDatabases,
-  isLocalBlastDatabaseValue,
   localBlastDatabaseValue,
   queryLocalBlast,
   selectedLocalBlastDatabase,
@@ -76,6 +75,8 @@ export default function BlastProteinDialog({
   const [localBlastDatabases, setLocalBlastDatabases] = useState<
     LocalBlastDatabase[]
   >([])
+  const [precomputedBlastTableValue, setPrecomputedBlastTableValue] =
+    useState('')
   const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false)
   const [localAllHits, setLocalAllHits] = useState(false)
   const [minIdentityPercent, setMinIdentityPercent] = useState(
@@ -92,9 +93,9 @@ export default function BlastProteinDialog({
   const [running, setRunning] = useState(false)
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
-  const localBlastDatabase = selectedLocalBlastDatabase({
+  const precomputedBlastTable = selectedLocalBlastDatabase({
     databases: localBlastDatabases,
-    value: blastDatabase,
+    value: precomputedBlastTableValue,
   })
 
   async function loadLocalDatabases() {
@@ -111,8 +112,7 @@ export default function BlastProteinDialog({
           'No precomputed BLASTP tables are configured for BlastTrack.',
         )
       }
-      setBlastDatabase(localBlastDatabaseValue(databases[0]))
-      setBlastProgram('blastp')
+      setPrecomputedBlastTableValue(localBlastDatabaseValue(databases[0]))
       setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`)
     } catch (e) {
       console.error(e)
@@ -123,9 +123,22 @@ export default function BlastProteinDialog({
   }
 
   async function runBlast() {
+    await runBlastSource('ncbi')
+  }
+
+  async function runPrecomputedBlast() {
+    await runBlastSource('precomputed')
+  }
+
+  async function runBlastSource(source: 'ncbi' | 'precomputed') {
     try {
       setRunning(true)
       setError(undefined)
+      const selectedPrecomputedTable =
+        source === 'precomputed' ? precomputedBlastTable : undefined
+      if (source === 'precomputed' && !selectedPrecomputedTable) {
+        throw new Error('Choose a precomputed BLASTP table first.')
+      }
       setProgress(`Preparing protein sequence for ${featureName}...`)
       const cleanedSequence = cleanProteinSequence(
         (await getProteinSequence({ feature, view })) ?? '',
@@ -141,16 +154,16 @@ export default function BlastProteinDialog({
       const sanitizedMinIdentityPercent =
         sanitizeMinIdentityPercent(minIdentityPercent)
       const displayedHitLimit =
-        localBlastDatabase && localAllHits
+        selectedPrecomputedTable && localAllHits
           ? Number.POSITIVE_INFINITY
           : sanitizedHitLimit
       const query = `>${featureName}\n${cleanedSequence}`
-      const { hits, rid } = localBlastDatabase
-          ? await queryLocalBlast({
+      const { hits, rid } = selectedPrecomputedTable
+        ? await queryLocalBlast({
             allHits: localAllHits,
             queryIds: precomputedBlastQueryIds(feature, featureName),
             query,
-            blastDatabase: localBlastDatabase,
+            blastDatabase: selectedPrecomputedTable,
             blastProgram: 'blastp',
             hitLimit: sanitizedHitLimit,
             hspLimit: sanitizedHspLimit,
@@ -164,8 +177,8 @@ export default function BlastProteinDialog({
             baseUrl: ncbiBlastUrl,
             onProgress: setProgress,
           })
-      const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram
-      const resultSource = localBlastDatabase
+      const resultBlastProgram = selectedPrecomputedTable ? 'blastp' : blastProgram
+      const resultSource = selectedPrecomputedTable
         ? 'Precomputed BLASTP'
         : blastProgram === 'quick-blastp'
           ? 'NCBI quick-blastp'
@@ -195,10 +208,12 @@ export default function BlastProteinDialog({
           ? appendTargetTrack?.trackId
           : undefined,
         assemblyName,
-        baseUrl: localBlastDatabase ? undefined : ncbiBlastUrl,
+        baseUrl: selectedPrecomputedTable ? undefined : ncbiBlastUrl,
         blastProgram: 'blastp',
         features: blastFeatures,
-        name: `BLASTP hits - ${featureName}`,
+        name: selectedPrecomputedTable
+          ? `Precomputed BLASTP hits - ${featureName}`
+          : `BLASTP hits - ${featureName}`,
         rid,
         trackId,
         view,
@@ -227,13 +242,9 @@ export default function BlastProteinDialog({
           label="BLAST database"
           value={blastDatabase}
           onChange={event => {
-            const nextDatabase = event.target
-              .value as string
+            const nextDatabase = event.target.value as string
             setBlastDatabase(nextDatabase)
-            if (
-              nextDatabase === 'nr_cluster_seq' ||
-              isLocalBlastDatabaseValue(nextDatabase)
-            ) {
+            if (nextDatabase === 'nr_cluster_seq') {
               setBlastProgram('blastp')
             }
           }}
@@ -244,40 +255,13 @@ export default function BlastProteinDialog({
               {option}
             </MenuItem>
           ))}
-          {localBlastDatabases.length ? (
-            <MenuItem disabled value="local-header">
-              Precomputed BLASTP tables
-            </MenuItem>
-          ) : null}
-          {localBlastDatabases.map(database => (
-            <MenuItem
-              key={database.id}
-              value={localBlastDatabaseValue(database)}
-            >
-              {database.title ?? database.name}
-            </MenuItem>
-          ))}
         </TextField>
-        <Button
-          disabled={running || loadingLocalDatabases}
-          onClick={() => {
-            void loadLocalDatabases()
-          }}
-          sx={{ mt: 2, ml: 1 }}
-          variant="outlined"
-        >
-          Load precomputed BLAST tables
-        </Button>
-        <LocalBlastHelp />
         <TextField
           margin="normal"
           select
           label="BLAST program"
           value={blastProgram}
-          disabled={
-            blastDatabase === 'nr_cluster_seq' ||
-            isLocalBlastDatabaseValue(blastDatabase)
-          }
+          disabled={blastDatabase === 'nr_cluster_seq'}
           onChange={event => {
             setBlastProgram(
               event.target.value as (typeof blastProgramOptions)[number],
@@ -294,34 +278,17 @@ export default function BlastProteinDialog({
           ))}
         </TextField>
         <TextField
-          disabled={Boolean(localBlastDatabase && localAllHits)}
+          disabled={Boolean(precomputedBlastTable && localAllHits)}
           margin="normal"
           type="number"
           label="Number of matches"
-          helperText={
-            localBlastDatabase
-              ? 'Distinct subject proteins to keep unless all precomputed hits is selected'
-              : 'Distinct subject proteins to keep for this gene'
-          }
+          helperText="Distinct subject proteins to keep for this gene"
           value={hitLimit}
           onChange={event => {
             setHitLimit(Number(event.target.value))
           }}
           sx={{ ml: 2, width: 210 }}
         />
-        {localBlastDatabase ? (
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={localAllHits}
-                onChange={event => {
-                  setLocalAllHits(event.target.checked)
-                }}
-              />
-            }
-            label="All precomputed BLAST hits"
-          />
-        ) : null}
         <TextField
           margin="normal"
           type="number"
@@ -406,9 +373,60 @@ export default function BlastProteinDialog({
           because dense alignments can become hard to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
-          {localBlastDatabase
-            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query ID; it does not run BLAST.'
-            : 'BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and polls each RID once per minute.'}
+          BlastTrack spaces NCBI BLAST submissions at least 10 seconds apart and
+          polls each RID every 30 seconds after the first check.
+        </Typography>
+        <Typography sx={{ mt: 3 }} variant="subtitle2">
+          Precomputed BLASTP table
+        </Typography>
+        <Button
+          disabled={running || loadingLocalDatabases}
+          onClick={() => {
+            void loadLocalDatabases()
+          }}
+          sx={{ mt: 1, mr: 1 }}
+          variant="outlined"
+        >
+          Load tables
+        </Button>
+        <LocalBlastHelp />
+        {localBlastDatabases.length ? (
+          <TextField
+            margin="normal"
+            select
+            label="Precomputed table"
+            value={precomputedBlastTableValue}
+            onChange={event => {
+              setPrecomputedBlastTableValue(event.target.value)
+            }}
+            sx={{ ml: 2, minWidth: 260 }}
+          >
+            {localBlastDatabases.map(database => (
+              <MenuItem
+                key={database.id}
+                value={localBlastDatabaseValue(database)}
+              >
+                {database.title ?? database.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        ) : null}
+        {precomputedBlastTable ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={localAllHits}
+                onChange={event => {
+                  setLocalAllHits(event.target.checked)
+                }}
+              />
+            }
+            label="All precomputed BLAST hits"
+          />
+        ) : null}
+        <Typography sx={{ mt: 1 }} variant="body2">
+          Precomputed tables read static tabix-indexed BLASTP rows by clicked
+          query ID; they do not submit a BLAST job.
         </Typography>
         {running ? (
           <ProgressDots message={progress} />
@@ -422,7 +440,16 @@ export default function BlastProteinDialog({
           }}
           variant="contained"
         >
-          Submit
+          Submit NCBI BLAST
+        </Button>
+        <Button
+          disabled={running || !precomputedBlastTable}
+          onClick={() => {
+            void runPrecomputedBlast()
+          }}
+          variant="outlined"
+        >
+          Load Precomputed Hits
         </Button>
         <Button disabled={running} onClick={handleClose}>
           Cancel

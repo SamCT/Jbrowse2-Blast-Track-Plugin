@@ -26,7 +26,6 @@ import {
 import { getFeatureName } from '../utils/featureSequence'
 import {
   fetchLocalBlastDatabases,
-  isLocalBlastDatabaseValue,
   localBlastDatabaseValue,
   queryLocalBlastReports,
   selectedLocalBlastDatabase,
@@ -97,6 +96,8 @@ export default function BlastSelectionDialog({
   const [localBlastDatabases, setLocalBlastDatabases] = useState<
     LocalBlastDatabase[]
   >([])
+  const [precomputedBlastTableValue, setPrecomputedBlastTableValue] =
+    useState('')
   const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false)
   const [localAllHits, setLocalAllHits] = useState(false)
   const [minIdentityPercent, setMinIdentityPercent] = useState(
@@ -113,9 +114,9 @@ export default function BlastSelectionDialog({
   const [running, setRunning] = useState(false)
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
-  const localBlastDatabase = selectedLocalBlastDatabase({
+  const precomputedBlastTable = selectedLocalBlastDatabase({
     databases: localBlastDatabases,
-    value: blastDatabase,
+    value: precomputedBlastTableValue,
   })
 
   const title =
@@ -134,8 +135,25 @@ export default function BlastSelectionDialog({
       if (mode === 'blastn-region') {
         await runBlastnRegion()
       } else {
-        await runBlastpGenes()
+        await runBlastpGenes('ncbi')
       }
+      handleClose()
+    } catch (e) {
+      console.error(e)
+      setError(e)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function runPrecomputedBlastpGenes() {
+    try {
+      setRunning(true)
+      setError(undefined)
+      if (!precomputedBlastTable) {
+        throw new Error('Choose a precomputed BLASTP table first.')
+      }
+      await runBlastpGenes('precomputed')
       handleClose()
     } catch (e) {
       console.error(e)
@@ -159,8 +177,7 @@ export default function BlastSelectionDialog({
           'No precomputed BLASTP tables are configured for BlastTrack.',
         )
       }
-      setBlastDatabase(localBlastDatabaseValue(databases[0]))
-      setBlastProgram('blastp')
+      setPrecomputedBlastTableValue(localBlastDatabaseValue(databases[0]))
       setProgress(`Loaded ${databases.length} precomputed BLASTP table(s).`)
     } catch (e) {
       console.error(e)
@@ -230,14 +247,16 @@ export default function BlastSelectionDialog({
     })
   }
 
-  async function runBlastpGenes() {
+  async function runBlastpGenes(source: 'ncbi' | 'precomputed') {
+    const selectedPrecomputedTable =
+      source === 'precomputed' ? precomputedBlastTable : undefined
     const region = getSingleRegion(regions)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
     const sanitizedMinIdentityPercent =
       sanitizeMinIdentityPercent(minIdentityPercent)
     const displayedHitLimit =
-      localBlastDatabase && localAllHits
+      selectedPrecomputedTable && localAllHits
         ? Number.POSITIVE_INFINITY
         : sanitizedHitLimit
     const runPrefix = sanitizeTrackId(
@@ -254,7 +273,7 @@ export default function BlastSelectionDialog({
 
     const selectedGenes = genes
     if (
-      !localBlastDatabase &&
+      !selectedPrecomputedTable &&
       selectedGenes.length >= highVolumeGeneWarningThreshold
     ) {
       getSession(model).notify(
@@ -340,12 +359,12 @@ export default function BlastSelectionDialog({
     const query = queries
       .map(({ header, sequence }) => fastaRecord(header, sequence))
       .join('\n')
-    const { reports, rid } = localBlastDatabase
+    const { reports, rid } = selectedPrecomputedTable
       ? await queryLocalBlastReports({
           allHits: localAllHits,
           query,
           queryIds: queries.flatMap(({ queryIds }) => queryIds),
-          blastDatabase: localBlastDatabase,
+          blastDatabase: selectedPrecomputedTable,
           blastProgram: 'blastp',
           hitLimit: sanitizedHitLimit,
           hspLimit: sanitizedHspLimit,
@@ -364,8 +383,8 @@ export default function BlastSelectionDialog({
           },
         })
 
-    const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram
-    const resultSource = localBlastDatabase
+    const resultBlastProgram = selectedPrecomputedTable ? 'blastp' : blastProgram
+    const resultSource = selectedPrecomputedTable
       ? 'Precomputed BLASTP'
       : blastProgram === 'quick-blastp'
         ? 'NCBI quick-blastp'
@@ -436,10 +455,12 @@ export default function BlastSelectionDialog({
         ? appendTargetTrack?.trackId
         : undefined,
       assemblyName: region.assemblyName,
-      baseUrl: localBlastDatabase ? undefined : ncbiBlastUrl,
+      baseUrl: selectedPrecomputedTable ? undefined : ncbiBlastUrl,
       blastProgram: 'blastp',
       features,
-      name: `BLASTP gene hits - ${regionLabel(region)}`,
+      name: selectedPrecomputedTable
+        ? `Precomputed BLASTP gene hits - ${regionLabel(region)}`
+        : `BLASTP gene hits - ${regionLabel(region)}`,
       rid,
       trackId: sanitizeTrackId(
         `blastp_genes_${region.refName}_${region.start}_${region.end}_${rid}`,
@@ -492,10 +513,7 @@ export default function BlastSelectionDialog({
               onChange={event => {
                 const nextDatabase = event.target.value
                 setBlastDatabase(nextDatabase)
-                if (
-                  nextDatabase === 'nr_cluster_seq' ||
-                  isLocalBlastDatabaseValue(nextDatabase)
-                ) {
+                if (nextDatabase === 'nr_cluster_seq') {
                   setBlastProgram('blastp')
                 }
               }}
@@ -506,40 +524,13 @@ export default function BlastSelectionDialog({
                   {option}
                 </MenuItem>
               ))}
-              {localBlastDatabases.length ? (
-                <MenuItem disabled value="local-header">
-                  Precomputed BLASTP tables
-                </MenuItem>
-              ) : null}
-              {localBlastDatabases.map(database => (
-                <MenuItem
-                  key={database.id}
-                  value={localBlastDatabaseValue(database)}
-                >
-                  {database.title ?? database.name}
-                </MenuItem>
-              ))}
             </TextField>
-            <Button
-              disabled={running || loadingLocalDatabases}
-              onClick={() => {
-                void loadLocalDatabases()
-              }}
-              sx={{ mt: 2, ml: 1 }}
-              variant="outlined"
-            >
-              Load precomputed BLAST tables
-            </Button>
-            <LocalBlastHelp />
             <TextField
               margin="normal"
               select
               label="BLAST program"
               value={blastProgram}
-              disabled={
-                blastDatabase === 'nr_cluster_seq' ||
-                isLocalBlastDatabaseValue(blastDatabase)
-              }
+              disabled={blastDatabase === 'nr_cluster_seq'}
               onChange={event => {
                 setBlastProgram(
                   event.target.value as (typeof proteinProgramOptions)[number],
@@ -581,7 +572,7 @@ export default function BlastSelectionDialog({
         )}
         <TextField
           disabled={Boolean(
-            mode === 'blastp-genes' && localBlastDatabase && localAllHits,
+            mode === 'blastp-genes' && precomputedBlastTable && localAllHits,
           )}
           margin="normal"
           type="number"
@@ -597,19 +588,6 @@ export default function BlastSelectionDialog({
           }}
           sx={{ ml: 2, width: mode === 'blastp-genes' ? 190 : 180 }}
         />
-        {mode === 'blastp-genes' && localBlastDatabase ? (
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={localAllHits}
-                onChange={event => {
-                  setLocalAllHits(event.target.checked)
-                }}
-              />
-            }
-            label="All precomputed BLAST hits"
-          />
-        ) : null}
         {mode === 'blastp-genes' ? (
           <TextField
             margin="normal"
@@ -700,10 +678,66 @@ export default function BlastSelectionDialog({
           difficult to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
-          {localBlastDatabase
-            ? 'Precomputed BLASTP reads a static tabix-indexed table by clicked query IDs; it does not run BLAST.'
-            : 'BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute.'}
+          BlastTrack batches selected genes into one multi-FASTA request, spaces
+          NCBI submissions at least 10 seconds apart, and polls each RID every
+          30 seconds after the first check.
         </Typography>
+        {mode === 'blastp-genes' ? (
+          <>
+            <Typography sx={{ mt: 3 }} variant="subtitle2">
+              Precomputed BLASTP table
+            </Typography>
+            <Button
+              disabled={running || loadingLocalDatabases}
+              onClick={() => {
+                void loadLocalDatabases()
+              }}
+              sx={{ mt: 1, mr: 1 }}
+              variant="outlined"
+            >
+              Load tables
+            </Button>
+            <LocalBlastHelp />
+            {localBlastDatabases.length ? (
+              <TextField
+                margin="normal"
+                select
+                label="Precomputed table"
+                value={precomputedBlastTableValue}
+                onChange={event => {
+                  setPrecomputedBlastTableValue(event.target.value)
+                }}
+                sx={{ ml: 2, minWidth: 260 }}
+              >
+                {localBlastDatabases.map(database => (
+                  <MenuItem
+                    key={database.id}
+                    value={localBlastDatabaseValue(database)}
+                  >
+                    {database.title ?? database.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
+            {precomputedBlastTable ? (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={localAllHits}
+                    onChange={event => {
+                      setLocalAllHits(event.target.checked)
+                    }}
+                  />
+                }
+                label="All precomputed BLAST hits"
+              />
+            ) : null}
+            <Typography sx={{ mt: 1 }} variant="body2">
+              Precomputed tables read static tabix-indexed BLASTP rows by
+              selected query IDs; they do not submit a BLAST job.
+            </Typography>
+          </>
+        ) : null}
         {running ? (
           <ProgressDots message={progress} />
         ) : null}
@@ -716,8 +750,19 @@ export default function BlastSelectionDialog({
           }}
           variant="contained"
         >
-          Submit
+          {mode === 'blastp-genes' ? 'Submit NCBI BLAST' : 'Submit'}
         </Button>
+        {mode === 'blastp-genes' ? (
+          <Button
+            disabled={running || !precomputedBlastTable}
+            onClick={() => {
+              void runPrecomputedBlastpGenes()
+            }}
+            variant="outlined"
+          >
+            Load Precomputed Hits
+          </Button>
+        ) : null}
         <Button disabled={running} onClick={handleClose}>
           Cancel
         </Button>
