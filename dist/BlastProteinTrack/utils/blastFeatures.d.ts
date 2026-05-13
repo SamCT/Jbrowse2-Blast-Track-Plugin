@@ -20,6 +20,9 @@ export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, id
     totalQueryLengthAa: number;
     totalSubjectLengthAa: number | undefined;
     totalPercentIdentity: number;
+    queryAlignedLengthAa: number;
+    subjectAlignedLengthAa: number | undefined;
+    totalSubjectAlignedLengthAa: number | undefined;
     hitRank: number;
     identity: number;
     percentIdentity: number;
@@ -45,6 +48,7 @@ export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, id
     lengthUnits: string;
     queryFeature: any;
     queryProteinLengthAa: number;
+    subjectRangeLengthAa: number | undefined;
     accession: string | undefined;
     ncbiId: string | undefined;
     description: string | undefined;
@@ -60,6 +64,7 @@ export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, id
     bestHspQueryRange: string | undefined;
     subjectFrom: number | undefined;
     subjectTo: number | undefined;
+    subjectLengthAa: number | undefined;
     subjectProteinLengthAa: number | undefined;
     hitLengthAa: number | undefined;
     descriptionMemberCount: number;

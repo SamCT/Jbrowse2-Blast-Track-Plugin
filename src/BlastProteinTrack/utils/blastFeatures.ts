@@ -145,6 +145,12 @@ export function featuresFromBlastHits({
     const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
     const bestHsp = [...hsps].sort(compareHsps)[0]
     const subjectRange = hspSubjectRange(hsps)
+    const subjectFullLength = subjectProteinLength(hit, hsps)
+    const queryCoveredLengthAa = queryCoveredLength(hsps)
+    const subjectCoveredLength = subjectCoveredLengthAa(hsps)
+    const subjectRangeLength = subjectRange
+      ? subjectRange.to - subjectRange.from + 1
+      : undefined
 
     return [
       {
@@ -155,8 +161,11 @@ export function featuresFromBlastHits({
         type: 'gene',
         name: label,
         totalQueryLengthAa: queryProteinLength,
-        totalSubjectLengthAa: hit.len,
+        totalSubjectLengthAa: subjectFullLength,
         totalPercentIdentity: identity,
+        queryAlignedLengthAa: queryCoveredLengthAa,
+        subjectAlignedLengthAa: subjectCoveredLength,
+        totalSubjectAlignedLengthAa: subjectCoveredLength,
         hitRank: hitIndex + 1,
         identity,
         percentIdentity: identity,
@@ -180,10 +189,11 @@ export function featuresFromBlastHits({
           : 'Protein HSP query coordinates projected over feature span; no CDS subfeatures found',
         id: label,
         gene_id: label,
-        length: hit.len,
+        length: subjectFullLength,
         lengthUnits: 'amino acids',
         queryFeature: getFeatureName(queryFeature),
         queryProteinLengthAa: queryProteinLength,
+        subjectRangeLengthAa: subjectRangeLength,
         accession: description.accession,
         ncbiId: description.id,
         description: title,
@@ -201,8 +211,9 @@ export function featuresFromBlastHits({
           : undefined,
         subjectFrom: subjectRange?.from,
         subjectTo: subjectRange?.to,
-        subjectProteinLengthAa: hit.len,
-        hitLengthAa: hit.len,
+        subjectLengthAa: subjectFullLength,
+        subjectProteinLengthAa: subjectFullLength,
+        hitLengthAa: subjectFullLength,
         descriptionMemberCount: descriptions.length,
         allAccessions: joinedDescriptionField(descriptions, 'accession'),
         allDescriptions: joinedDescriptionField(descriptions, 'title'),
@@ -666,7 +677,7 @@ function hitRankingStats(
   queryProteinLength: number,
 ): HitRankingStats {
   const hsps = hit.hsps.filter(hasQueryRange)
-  const subjectLength = hit.len ?? 0
+  const subjectLength = subjectProteinLength(hit, hsps) ?? 0
   const queryCoverage = queryCoveragePct(hsps, queryProteinLength)
   const identity = weightedPercent(hsps, 'identity')
   const evalue = bestEvalue(hsps)
@@ -815,6 +826,36 @@ function hspSubjectRange(hsps: BlastHsp[]) {
   return coords.length
     ? { from: Math.min(...coords), to: Math.max(...coords) }
     : undefined
+}
+
+function subjectProteinLength(hit: BlastHit, hsps: BlastHsp[]) {
+  return positiveLength(hit.len) ?? hspSubjectRangeLength(hsps)
+}
+
+function hspSubjectRangeLength(hsps: BlastHsp[]) {
+  const range = hspSubjectRange(hsps)
+  return range ? range.to - range.from + 1 : undefined
+}
+
+function subjectCoveredLengthAa(hsps: BlastHsp[]) {
+  const covered = new Set<number>()
+  let hasSubjectCoordinates = false
+  for (const hsp of hsps) {
+    if (hsp.hit_from === undefined || hsp.hit_to === undefined) {
+      continue
+    }
+    hasSubjectCoordinates = true
+    const start = Math.min(hsp.hit_from, hsp.hit_to)
+    const end = Math.max(hsp.hit_from, hsp.hit_to)
+    for (let i = start; i <= end; i++) {
+      covered.add(i)
+    }
+  }
+  return hasSubjectCoordinates ? covered.size : undefined
+}
+
+function positiveLength(value: unknown) {
+  return typeof value === 'number' && value > 0 ? value : undefined
 }
 
 function totalMismatches(hsps: BlastHsp[]) {

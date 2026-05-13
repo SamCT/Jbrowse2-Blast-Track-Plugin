@@ -71,6 +71,12 @@ export function featuresFromBlastHits({ blastProgram = 'blastp', hspLimit, hits,
         const queryCoverage = queryCoveragePct(hsps, queryProteinLength);
         const bestHsp = [...hsps].sort(compareHsps)[0];
         const subjectRange = hspSubjectRange(hsps);
+        const subjectFullLength = subjectProteinLength(hit, hsps);
+        const queryCoveredLengthAa = queryCoveredLength(hsps);
+        const subjectCoveredLength = subjectCoveredLengthAa(hsps);
+        const subjectRangeLength = subjectRange
+            ? subjectRange.to - subjectRange.from + 1
+            : undefined;
         return [
             {
                 uniqueId: hitId(description, hitIndex, idPrefix),
@@ -80,8 +86,11 @@ export function featuresFromBlastHits({ blastProgram = 'blastp', hspLimit, hits,
                 type: 'gene',
                 name: label,
                 totalQueryLengthAa: queryProteinLength,
-                totalSubjectLengthAa: hit.len,
+                totalSubjectLengthAa: subjectFullLength,
                 totalPercentIdentity: identity,
+                queryAlignedLengthAa: queryCoveredLengthAa,
+                subjectAlignedLengthAa: subjectCoveredLength,
+                totalSubjectAlignedLengthAa: subjectCoveredLength,
                 hitRank: hitIndex + 1,
                 identity,
                 percentIdentity: identity,
@@ -105,10 +114,11 @@ export function featuresFromBlastHits({ blastProgram = 'blastp', hspLimit, hits,
                     : 'Protein HSP query coordinates projected over feature span; no CDS subfeatures found',
                 id: label,
                 gene_id: label,
-                length: hit.len,
+                length: subjectFullLength,
                 lengthUnits: 'amino acids',
                 queryFeature: getFeatureName(queryFeature),
                 queryProteinLengthAa: queryProteinLength,
+                subjectRangeLengthAa: subjectRangeLength,
                 accession: description.accession,
                 ncbiId: description.id,
                 description: title,
@@ -126,8 +136,9 @@ export function featuresFromBlastHits({ blastProgram = 'blastp', hspLimit, hits,
                     : undefined,
                 subjectFrom: subjectRange?.from,
                 subjectTo: subjectRange?.to,
-                subjectProteinLengthAa: hit.len,
-                hitLengthAa: hit.len,
+                subjectLengthAa: subjectFullLength,
+                subjectProteinLengthAa: subjectFullLength,
+                hitLengthAa: subjectFullLength,
                 descriptionMemberCount: descriptions.length,
                 allAccessions: joinedDescriptionField(descriptions, 'accession'),
                 allDescriptions: joinedDescriptionField(descriptions, 'title'),
@@ -447,7 +458,7 @@ function bestBitScore(hsps) {
 }
 function hitRankingStats(hit, queryProteinLength) {
     const hsps = hit.hsps.filter(hasQueryRange);
-    const subjectLength = hit.len ?? 0;
+    const subjectLength = subjectProteinLength(hit, hsps) ?? 0;
     const queryCoverage = queryCoveragePct(hsps, queryProteinLength);
     const identity = weightedPercent(hsps, 'identity');
     const evalue = bestEvalue(hsps);
@@ -558,6 +569,32 @@ function hspSubjectRange(hsps) {
     return coords.length
         ? { from: Math.min(...coords), to: Math.max(...coords) }
         : undefined;
+}
+function subjectProteinLength(hit, hsps) {
+    return positiveLength(hit.len) ?? hspSubjectRangeLength(hsps);
+}
+function hspSubjectRangeLength(hsps) {
+    const range = hspSubjectRange(hsps);
+    return range ? range.to - range.from + 1 : undefined;
+}
+function subjectCoveredLengthAa(hsps) {
+    const covered = new Set();
+    let hasSubjectCoordinates = false;
+    for (const hsp of hsps) {
+        if (hsp.hit_from === undefined || hsp.hit_to === undefined) {
+            continue;
+        }
+        hasSubjectCoordinates = true;
+        const start = Math.min(hsp.hit_from, hsp.hit_to);
+        const end = Math.max(hsp.hit_from, hsp.hit_to);
+        for (let i = start; i <= end; i++) {
+            covered.add(i);
+        }
+    }
+    return hasSubjectCoordinates ? covered.size : undefined;
+}
+function positiveLength(value) {
+    return typeof value === 'number' && value > 0 ? value : undefined;
 }
 function totalMismatches(hsps) {
     return hsps.reduce((total, hsp) => {
