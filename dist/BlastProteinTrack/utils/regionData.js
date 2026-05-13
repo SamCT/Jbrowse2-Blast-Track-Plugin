@@ -208,7 +208,7 @@ function normalizeFeatureIdentity(value) {
     return typeof value === 'string'
         ? value
             .replace(/^(gene|mrna|transcript)[:_-]/i, '')
-            .replace(/\.(?:mrna|transcript|t|isoform)?\d+$/i, '')
+            .replace(/\.(?:mrna|transcript|t|isoform)\d+$/i, '')
             .trim()
             .toLowerCase()
         : undefined;
