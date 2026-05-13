@@ -1,13 +1,15 @@
-import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useMemo, useState } from 'react';
 import { Dialog, ErrorMessage } from '@jbrowse/core/ui';
 import { getSession } from '@jbrowse/core/util';
 import { Button, Checkbox, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField, Typography, } from '@mui/material';
 import ProgressDots from './ProgressDots';
+import LocalBlastHelp from './LocalBlastHelp';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { featuresFromBlastNHits } from '../utils/blastNFeatures';
 import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
+import { fetchLocalBlastDatabases, isLocalBlastDatabaseValue, localBlastDatabaseValue, queryLocalBlastReports, selectedLocalBlastDatabase, } from '../utils/localBlast';
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
 import { queryGeneFeature } from '../utils/queryGeneFeatures';
@@ -36,6 +38,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [blastProgram, setBlastProgram] = useState(defaultProteinProgram);
     const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
+    const [localBlastDatabases, setLocalBlastDatabases] = useState([]);
+    const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false);
+    const [localAllHits, setLocalAllHits] = useState(false);
     const [showMismatchMarkers, setShowMismatchMarkers] = useState(false);
     const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp);
     const [progress, setProgress] = useState('');
@@ -43,6 +48,10 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
     const [running, setRunning] = useState(false);
     const [appendToExistingTrack, setAppendToExistingTrack] = useState(false);
     const appendTargetTrack = appendableBlastTracks[0];
+    const localBlastDatabase = selectedLocalBlastDatabase({
+        databases: localBlastDatabases,
+        value: blastDatabase,
+    });
     const title = mode === 'blastn-region'
         ? 'BLASTN selected region'
         : 'BLASTP genes in selected region';
@@ -67,6 +76,30 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         }
         finally {
             setRunning(false);
+        }
+    }
+    async function loadLocalDatabases() {
+        try {
+            setLoadingLocalDatabases(true);
+            setError(undefined);
+            const databases = await fetchLocalBlastDatabases({
+                program: 'blastp',
+                onProgress: setProgress,
+            });
+            setLocalBlastDatabases(databases);
+            if (!databases.length) {
+                throw new Error('No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.');
+            }
+            setBlastDatabase(localBlastDatabaseValue(databases[0]));
+            setBlastProgram('blastp');
+            setProgress(`Loaded ${databases.length} local BLAST database(s).`);
+        }
+        catch (e) {
+            console.error(e);
+            setError(e);
+        }
+        finally {
+            setLoadingLocalDatabases(false);
         }
     }
     async function runBlastnRegion() {
@@ -121,6 +154,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const region = getSingleRegion(regions);
         const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit);
         const sanitizedHspLimit = sanitizeHspLimit(hspLimit);
+        const displayedHitLimit = localBlastDatabase && localAllHits
+            ? Number.POSITIVE_INFINITY
+            : sanitizedHitLimit;
         const runPrefix = sanitizeTrackId(`run_${Date.now()}_${region.refName}_${region.start}`);
         setProgress(`Finding genes in ${regionLabel(region)}...`);
         const genes = await fetchBlastableGenes({ region, view: model });
@@ -128,7 +164,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             throw new Error(`No visible gene, mRNA, or transcript features found in ${regionLabel(region)}. Zoom in until the gene track is rendered, then run BLASTP genes in selection again.`);
         }
         const selectedGenes = genes;
-        if (selectedGenes.length >= highVolumeGeneWarningThreshold) {
+        if (!localBlastDatabase &&
+            selectedGenes.length >= highVolumeGeneWarningThreshold) {
             getSession(model).notify(`Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`, 'warning');
         }
         const queries = [];
@@ -184,18 +221,37 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             getSession(model).notify('Genes were found, but none had extractable CDS/protein sequence for BLASTP. Query markers were added to the BLAST track.', 'warning');
             return;
         }
-        const { reports, rid } = await queryBlastReports({
-            query: queries
-                .map(({ header, sequence }) => fastaRecord(header, sequence))
-                .join('\n'),
-            blastDatabase,
-            blastProgram,
-            hitLimit: sanitizedHitLimit,
-            baseUrl: ncbiBlastUrl,
-            onProgress: message => {
-                setProgress(`BLASTP ${queries.length} genes: ${message}`);
-            },
-        });
+        const query = queries
+            .map(({ header, sequence }) => fastaRecord(header, sequence))
+            .join('\n');
+        const { reports, rid } = localBlastDatabase
+            ? await queryLocalBlastReports({
+                allHits: localAllHits,
+                query,
+                blastDatabase: localBlastDatabase.id,
+                blastProgram: 'blastp',
+                hitLimit: sanitizedHitLimit,
+                hspLimit: sanitizedHspLimit,
+                onProgress: message => {
+                    setProgress(`Local BLASTP ${queries.length} genes: ${message}`);
+                },
+            })
+            : await queryBlastReports({
+                query,
+                blastDatabase,
+                blastProgram,
+                hitLimit: sanitizedHitLimit,
+                baseUrl: ncbiBlastUrl,
+                onProgress: message => {
+                    setProgress(`BLASTP ${queries.length} genes: ${message}`);
+                },
+            });
+        const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram;
+        const resultSource = localBlastDatabase
+            ? 'Local BLASTP'
+            : blastProgram === 'quick-blastp'
+                ? 'NCBI quick-blastp'
+                : 'NCBI BLASTP';
         const hitFeaturesByGene = new Map();
         const reportMatchesByGene = new Map();
         const hitFeatures = queries.flatMap(({ feature, header, idPrefix, sequence }, index) => {
@@ -207,13 +263,15 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             });
             reportMatchesByGene.set(feature, reportMatch);
             const renderedHits = featuresFromBlastHits({
-                hitLimit: sanitizedHitLimit,
+                blastProgram: resultBlastProgram,
+                hitLimit: displayedHitLimit,
                 hspLimit: sanitizedHspLimit,
                 hits: reportMatch.report?.hits ?? [],
                 idPrefix,
                 queryFeature: feature,
                 queryProteinLength: sequence.length,
                 showMismatchMarkers,
+                source: resultSource,
             });
             hitFeaturesByGene.set(feature, renderedHits);
             return renderedHits;
@@ -249,7 +307,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 ? appendTargetTrack?.trackId
                 : undefined,
             assemblyName: region.assemblyName,
-            baseUrl: ncbiBlastUrl,
+            baseUrl: localBlastDatabase ? undefined : ncbiBlastUrl,
             blastProgram: 'blastp',
             features,
             name: `BLASTP gene hits - ${regionLabel(region)}`,
@@ -278,13 +336,17 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 .join('; '), 'warning');
         }
     }
-    return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
+    return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsxs(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
                                     setBlastDatabase(nextDatabase);
-                                    if (nextDatabase === 'nr_cluster_seq') {
+                                    if (nextDatabase === 'nr_cluster_seq' ||
+                                        isLocalBlastDatabaseValue(nextDatabase)) {
                                         setBlastProgram('blastp');
                                     }
-                                }, sx: { mr: 2, minWidth: 180 }, children: proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))) }), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq', onChange: event => {
+                                }, sx: { mr: 2, minWidth: 180 }, children: [proteinDatabaseOptions.map(option => (_jsx(MenuItem, { value: option, children: option }, option))), localBlastDatabases.length ? (_jsx(MenuItem, { disabled: true, value: "local-header", children: "Local BLAST DBs" })) : null, localBlastDatabases.map(database => (_jsx(MenuItem, { value: localBlastDatabaseValue(database), children: database.title ?? database.name }, database.id)))] }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                                    void loadLocalDatabases();
+                                }, sx: { mt: 2, ml: 1 }, variant: "outlined", children: "Load local BLAST DBs" }), _jsx(LocalBlastHelp, {}), _jsx(TextField, { margin: "normal", select: true, label: "BLAST program", value: blastProgram, disabled: blastDatabase === 'nr_cluster_seq' ||
+                                    isLocalBlastDatabaseValue(blastDatabase), onChange: event => {
                                     setBlastProgram(event.target.value);
                                 }, sx: { minWidth: 180 }, children: proteinProgramOptions.map(option => (_jsx(MenuItem, { value: option, children: option === 'quick-blastp'
                                         ? 'quick-blastp (faster NCBI protein BLAST)'
@@ -292,11 +354,13 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                     setBlastDatabase(event.target.value);
                                 }, sx: { mr: 2, minWidth: 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Max region bp", value: maxRegionBp, onChange: event => {
                                     setMaxRegionBp(Number(event.target.value));
-                                }, sx: { width: 150 } })] })), _jsx(TextField, { margin: "normal", type: "number", label: mode === 'blastp-genes' ? 'Hits per gene' : 'Hits', helperText: mode === 'blastp-genes'
+                                }, sx: { width: 150 } })] })), _jsx(TextField, { disabled: Boolean(mode === 'blastp-genes' && localBlastDatabase && localAllHits), margin: "normal", type: "number", label: mode === 'blastp-genes' ? 'Hits per gene' : 'Hits', helperText: mode === 'blastp-genes'
                             ? 'BLAST subject hits per query gene'
                             : 'BLAST subject hits for this region', value: hitLimit, onChange: event => {
                             setHitLimit(Number(event.target.value));
-                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
+                        }, sx: { ml: 2, width: mode === 'blastp-genes' ? 190 : 180 } }), mode === 'blastp-genes' && localBlastDatabase ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: localAllHits, onChange: event => {
+                                setLocalAllHits(event.target.checked);
+                            } }), label: "All local BLAST hits" })) : null, _jsx(TextField, { margin: "normal", type: "number", label: "Alignment segments", helperText: "1 = best segment, most sensitive; 3 = looser and may draw less accurate segments", value: hspLimit, onChange: event => {
                             setHspLimit(Number(event.target.value));
                         }, sx: { ml: 2, width: 210 } }), _jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: showMismatchMarkers, onChange: event => {
                                 setShowMismatchMarkers(event.target.checked);
@@ -304,7 +368,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes, using the longest detected isoform per gene. Hits are drawn over each query gene CDS.'
-                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute." }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
+                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: localBlastDatabase
+                            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+                            : 'BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute.' }), running ? (_jsx(ProgressDots, { message: progress })) : null] }), _jsxs(DialogActions, { children: [_jsx(Button, { disabled: running, onClick: () => {
                             void runBlast();
                         }, variant: "contained", children: "Submit" }), _jsx(Button, { disabled: running, onClick: handleClose, children: "Cancel" })] })] }));
 }

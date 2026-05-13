@@ -1,6 +1,7 @@
 import type { BlastHit } from './types';
 import type { Feature } from '@jbrowse/core/util';
-export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, }: {
+export declare function featuresFromBlastHits({ blastProgram, hspLimit, hits, idPrefix, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, source, }: {
+    blastProgram?: string;
     hspLimit: number;
     hits: BlastHit[];
     idPrefix?: string;
@@ -8,6 +9,7 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     queryProteinLength: number;
     hitLimit: number;
     showMismatchMarkers: boolean;
+    source?: string;
 }): {
     uniqueId: string;
     refName: string;
@@ -15,6 +17,9 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     end: number;
     type: string;
     name: string;
+    totalQueryLengthAa: number;
+    totalSubjectLengthAa: number | undefined;
+    totalPercentIdentity: number;
     hitRank: number;
     identity: number;
     percentIdentity: number;
@@ -36,6 +41,8 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     coordinateProjection: string;
     id: string;
     gene_id: string;
+    length: number | undefined;
+    lengthUnits: string;
     queryFeature: any;
     queryProteinLengthAa: number;
     accession: string | undefined;
@@ -54,7 +61,7 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
     subjectFrom: number | undefined;
     subjectTo: number | undefined;
     subjectProteinLengthAa: number | undefined;
-    hitLength: number | undefined;
+    hitLengthAa: number | undefined;
     descriptionMemberCount: number;
     allAccessions: string | undefined;
     allDescriptions: string | undefined;
@@ -77,7 +84,7 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
         identicalAminoAcids: number | undefined;
         positiveAminoAcids: number | undefined;
         alignmentLengthAa: number | undefined;
-        alignLength: number | undefined;
+        alignLengthAa: number | undefined;
         queryFrom: number | undefined;
         queryTo: number | undefined;
         subjectFrom: number | undefined;
@@ -92,6 +99,8 @@ export declare function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryF
         name: string;
         strand: number;
         source: string;
+        length: number | undefined;
+        lengthUnits: string;
         blastCandidateClass: string | undefined;
         candidateClass: string | undefined;
         subjectToQueryLengthRatio: number | undefined;

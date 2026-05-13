@@ -29,6 +29,8 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "npm run clean && tsc && node esbuild.mjs",
+    "generate:password": "node -e \"console.log(require('node:crypto').randomBytes(24).toString('base64url'))\"",
+    "serve:jbrowse": "node scripts/serve-jbrowse.mjs",
     "start": "node esbuild.mjs --watch",
     "prepack": "npm run build"
   },

@@ -1,6 +1,6 @@
 import { getFeatureName } from './featureSequence';
 import { getBestCdsSet } from './proteinFromCds';
-export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, }) {
+export function featuresFromBlastHits({ blastProgram = 'blastp', hspLimit, hits, idPrefix, queryFeature, queryProteinLength, hitLimit, showMismatchMarkers, source = 'NCBI BLASTP', }) {
     const refName = queryFeature.get('refName');
     const queryStart = queryFeature.get('start');
     const queryEnd = queryFeature.get('end');
@@ -30,6 +30,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
             queryProteinLength,
             queryStart,
             queryStrand,
+            source,
             codingSegments,
             subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
         }));
@@ -46,6 +47,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 queryProteinLength,
                 queryStart,
                 queryStrand,
+                source,
                 codingSegments,
             }))
             : [];
@@ -77,6 +79,9 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 end,
                 type: 'gene',
                 name: label,
+                totalQueryLengthAa: queryProteinLength,
+                totalSubjectLengthAa: hit.len,
+                totalPercentIdentity: identity,
                 hitRank: hitIndex + 1,
                 identity,
                 percentIdentity: identity,
@@ -93,13 +98,15 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 subjectToQueryLengthRatio: rankingStats.subjectToQueryLengthRatio,
                 strand: queryStrand,
                 score: bitScore,
-                source: 'NCBI BLASTP',
-                blastProgram: 'blastp',
+                source,
+                blastProgram,
                 coordinateProjection: codingSegments.length
                     ? 'Protein HSP query coordinates projected onto CDS exons'
                     : 'Protein HSP query coordinates projected over feature span; no CDS subfeatures found',
                 id: label,
                 gene_id: label,
+                length: hit.len,
+                lengthUnits: 'amino acids',
                 queryFeature: getFeatureName(queryFeature),
                 queryProteinLengthAa: queryProteinLength,
                 accession: description.accession,
@@ -120,7 +127,7 @@ export function featuresFromBlastHits({ hspLimit, hits, idPrefix, queryFeature, 
                 subjectFrom: subjectRange?.from,
                 subjectTo: subjectRange?.to,
                 subjectProteinLengthAa: hit.len,
-                hitLength: hit.len,
+                hitLengthAa: hit.len,
                 descriptionMemberCount: descriptions.length,
                 allAccessions: joinedDescriptionField(descriptions, 'accession'),
                 allDescriptions: joinedDescriptionField(descriptions, 'title'),
@@ -160,7 +167,7 @@ function getCodingSegments(feature) {
         return segment;
     });
 }
-function hspToCdsBlocks({ blastCandidateClass, description, hitIndex, hsp, hspIndex, idPrefix, refName, queryEnd, queryLength, queryProteinLength, queryStart, queryStrand, codingSegments, subjectToQueryLengthRatio, }) {
+function hspToCdsBlocks({ blastCandidateClass, description, hitIndex, hsp, hspIndex, idPrefix, refName, queryEnd, queryLength, queryProteinLength, queryStart, queryStrand, source, codingSegments, subjectToQueryLengthRatio, }) {
     const codingStart = (Math.min(hsp.query_from, hsp.query_to) - 1) * 3;
     const codingEnd = Math.max(hsp.query_from, hsp.query_to) * 3;
     const stats = hspStats(hsp);
@@ -185,7 +192,9 @@ function hspToCdsBlocks({ blastCandidateClass, description, hitIndex, hsp, hspIn
             ? `HSP ${hspIndex + 1}`
             : `HSP ${hspIndex + 1}.${partIndex + 1}`,
         strand: queryStrand,
-        source: 'NCBI BLASTP',
+        source,
+        length: hsp.align_len,
+        lengthUnits: 'amino acids',
         blastCandidateClass,
         candidateClass: blastCandidateClass,
         subjectToQueryLengthRatio,
@@ -255,7 +264,7 @@ function hspMismatchMarkers(args) {
                 ? `Gap Q${mismatch.queryAa}`
                 : `Mismatch Q${mismatch.queryAa}`,
             strand: args.queryStrand,
-            source: 'NCBI BLASTP',
+            source: args.source,
             hspNumber: args.hspIndex + 1,
             queryAa: mismatch.queryAa,
             queryResidue: mismatch.queryResidue,
@@ -329,7 +338,7 @@ function hspStats(hsp) {
         identicalAminoAcids: hsp.identity,
         positiveAminoAcids: hsp.positive,
         alignmentLengthAa: hsp.align_len,
-        alignLength: hsp.align_len,
+        alignLengthAa: hsp.align_len,
         queryFrom: hsp.query_from,
         queryTo: hsp.query_to,
         subjectFrom: hsp.hit_from,
@@ -353,6 +362,9 @@ function bestHits(hits, hitLimit, queryProteinLength) {
     return selectDisplayedHits(rankedHits, hitLimit).map(({ hit }) => hit);
 }
 function selectDisplayedHits(rankedHits, hitLimit) {
+    if (!Number.isFinite(hitLimit)) {
+        return rankedHits;
+    }
     const selected = [];
     const selectedHits = new Set();
     const selectedProductKeys = new Set();

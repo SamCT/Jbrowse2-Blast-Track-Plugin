@@ -14,6 +14,7 @@ import {
 } from '@mui/material'
 
 import ProgressDots from './ProgressDots'
+import LocalBlastHelp from './LocalBlastHelp'
 
 import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { featuresFromBlastNHits } from '../utils/blastNFeatures'
@@ -23,6 +24,14 @@ import {
   sanitizeTrackId,
 } from '../utils/blastTrackConfig'
 import { getFeatureName } from '../utils/featureSequence'
+import {
+  fetchLocalBlastDatabases,
+  isLocalBlastDatabaseValue,
+  localBlastDatabaseValue,
+  queryLocalBlastReports,
+  selectedLocalBlastDatabase,
+  type LocalBlastDatabase,
+} from '../utils/localBlast'
 import { queryBlast, queryBlastReports } from '../utils/ncbiBlast'
 import { getProteinSequence } from '../utils/proteinFromCds'
 import { queryGeneFeature } from '../utils/queryGeneFeatures'
@@ -75,7 +84,7 @@ export default function BlastSelectionDialog({
         : [],
     [appendAssemblyName, appendBlastProgram, model],
   )
-  const [blastDatabase, setBlastDatabase] = useState(
+  const [blastDatabase, setBlastDatabase] = useState<string>(
     mode === 'blastn-region' ? 'nt' : defaultProteinDatabase,
   )
   const [blastProgram, setBlastProgram] =
@@ -84,6 +93,11 @@ export default function BlastSelectionDialog({
     mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit,
   )
   const [hspLimit, setHspLimit] = useState(defaultHspLimit)
+  const [localBlastDatabases, setLocalBlastDatabases] = useState<
+    LocalBlastDatabase[]
+  >([])
+  const [loadingLocalDatabases, setLoadingLocalDatabases] = useState(false)
+  const [localAllHits, setLocalAllHits] = useState(false)
   const [showMismatchMarkers, setShowMismatchMarkers] = useState(false)
   const [maxRegionBp, setMaxRegionBp] = useState(defaultMaxRegionBp)
   const [progress, setProgress] = useState('')
@@ -91,6 +105,10 @@ export default function BlastSelectionDialog({
   const [running, setRunning] = useState(false)
   const [appendToExistingTrack, setAppendToExistingTrack] = useState(false)
   const appendTargetTrack = appendableBlastTracks[0]
+  const localBlastDatabase = selectedLocalBlastDatabase({
+    databases: localBlastDatabases,
+    value: blastDatabase,
+  })
 
   const title =
     mode === 'blastn-region'
@@ -116,6 +134,31 @@ export default function BlastSelectionDialog({
       setError(e)
     } finally {
       setRunning(false)
+    }
+  }
+
+  async function loadLocalDatabases() {
+    try {
+      setLoadingLocalDatabases(true)
+      setError(undefined)
+      const databases = await fetchLocalBlastDatabases({
+        program: 'blastp',
+        onProgress: setProgress,
+      })
+      setLocalBlastDatabases(databases)
+      if (!databases.length) {
+        throw new Error(
+          'No local protein BLAST databases were found on this JBrowse server. Set BLASTDB_DIR to a directory containing makeblastdb protein databases.',
+        )
+      }
+      setBlastDatabase(localBlastDatabaseValue(databases[0]))
+      setBlastProgram('blastp')
+      setProgress(`Loaded ${databases.length} local BLAST database(s).`)
+    } catch (e) {
+      console.error(e)
+      setError(e)
+    } finally {
+      setLoadingLocalDatabases(false)
     }
   }
 
@@ -183,6 +226,10 @@ export default function BlastSelectionDialog({
     const region = getSingleRegion(regions)
     const sanitizedHitLimit = sanitizeHitLimit(hitLimit, defaultBatchHitLimit)
     const sanitizedHspLimit = sanitizeHspLimit(hspLimit)
+    const displayedHitLimit =
+      localBlastDatabase && localAllHits
+        ? Number.POSITIVE_INFINITY
+        : sanitizedHitLimit
     const runPrefix = sanitizeTrackId(
       `run_${Date.now()}_${region.refName}_${region.start}`,
     )
@@ -196,7 +243,10 @@ export default function BlastSelectionDialog({
     }
 
     const selectedGenes = genes
-    if (selectedGenes.length >= highVolumeGeneWarningThreshold) {
+    if (
+      !localBlastDatabase &&
+      selectedGenes.length >= highVolumeGeneWarningThreshold
+    ) {
       getSession(model).notify(
         `Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`,
         'warning',
@@ -275,19 +325,38 @@ export default function BlastSelectionDialog({
       return
     }
 
-    const { reports, rid } = await queryBlastReports({
-      query: queries
-        .map(({ header, sequence }) => fastaRecord(header, sequence))
-        .join('\n'),
-      blastDatabase,
-      blastProgram,
-      hitLimit: sanitizedHitLimit,
-      baseUrl: ncbiBlastUrl,
-      onProgress: message => {
-        setProgress(`BLASTP ${queries.length} genes: ${message}`)
-      },
-    })
+    const query = queries
+      .map(({ header, sequence }) => fastaRecord(header, sequence))
+      .join('\n')
+    const { reports, rid } = localBlastDatabase
+      ? await queryLocalBlastReports({
+          allHits: localAllHits,
+          query,
+          blastDatabase: localBlastDatabase.id,
+          blastProgram: 'blastp',
+          hitLimit: sanitizedHitLimit,
+          hspLimit: sanitizedHspLimit,
+          onProgress: message => {
+            setProgress(`Local BLASTP ${queries.length} genes: ${message}`)
+          },
+        })
+      : await queryBlastReports({
+          query,
+          blastDatabase,
+          blastProgram,
+          hitLimit: sanitizedHitLimit,
+          baseUrl: ncbiBlastUrl,
+          onProgress: message => {
+            setProgress(`BLASTP ${queries.length} genes: ${message}`)
+          },
+        })
 
+    const resultBlastProgram = localBlastDatabase ? 'blastp' : blastProgram
+    const resultSource = localBlastDatabase
+      ? 'Local BLASTP'
+      : blastProgram === 'quick-blastp'
+        ? 'NCBI quick-blastp'
+        : 'NCBI BLASTP'
     const hitFeaturesByGene = new Map<Feature, FromConfigFeature[]>()
     const reportMatchesByGene = new Map<Feature, QueryReportMatch>()
     const hitFeatures = queries.flatMap(({ feature, header, idPrefix, sequence }, index) => {
@@ -299,13 +368,15 @@ export default function BlastSelectionDialog({
       })
       reportMatchesByGene.set(feature, reportMatch)
       const renderedHits = featuresFromBlastHits({
-        hitLimit: sanitizedHitLimit,
+        blastProgram: resultBlastProgram,
+        hitLimit: displayedHitLimit,
         hspLimit: sanitizedHspLimit,
         hits: reportMatch.report?.hits ?? [],
         idPrefix,
         queryFeature: feature,
         queryProteinLength: sequence.length,
         showMismatchMarkers,
+        source: resultSource,
       })
       hitFeaturesByGene.set(feature, renderedHits)
       return renderedHits
@@ -343,7 +414,7 @@ export default function BlastSelectionDialog({
         ? appendTargetTrack?.trackId
         : undefined,
       assemblyName: region.assemblyName,
-      baseUrl: ncbiBlastUrl,
+      baseUrl: localBlastDatabase ? undefined : ncbiBlastUrl,
       blastProgram: 'blastp',
       features,
       name: `BLASTP gene hits - ${regionLabel(region)}`,
@@ -399,7 +470,10 @@ export default function BlastSelectionDialog({
               onChange={event => {
                 const nextDatabase = event.target.value
                 setBlastDatabase(nextDatabase)
-                if (nextDatabase === 'nr_cluster_seq') {
+                if (
+                  nextDatabase === 'nr_cluster_seq' ||
+                  isLocalBlastDatabaseValue(nextDatabase)
+                ) {
                   setBlastProgram('blastp')
                 }
               }}
@@ -410,13 +484,40 @@ export default function BlastSelectionDialog({
                   {option}
                 </MenuItem>
               ))}
+              {localBlastDatabases.length ? (
+                <MenuItem disabled value="local-header">
+                  Local BLAST DBs
+                </MenuItem>
+              ) : null}
+              {localBlastDatabases.map(database => (
+                <MenuItem
+                  key={database.id}
+                  value={localBlastDatabaseValue(database)}
+                >
+                  {database.title ?? database.name}
+                </MenuItem>
+              ))}
             </TextField>
+            <Button
+              disabled={running || loadingLocalDatabases}
+              onClick={() => {
+                void loadLocalDatabases()
+              }}
+              sx={{ mt: 2, ml: 1 }}
+              variant="outlined"
+            >
+              Load local BLAST DBs
+            </Button>
+            <LocalBlastHelp />
             <TextField
               margin="normal"
               select
               label="BLAST program"
               value={blastProgram}
-              disabled={blastDatabase === 'nr_cluster_seq'}
+              disabled={
+                blastDatabase === 'nr_cluster_seq' ||
+                isLocalBlastDatabaseValue(blastDatabase)
+              }
               onChange={event => {
                 setBlastProgram(
                   event.target.value as (typeof proteinProgramOptions)[number],
@@ -457,6 +558,9 @@ export default function BlastSelectionDialog({
           </>
         )}
         <TextField
+          disabled={Boolean(
+            mode === 'blastp-genes' && localBlastDatabase && localAllHits,
+          )}
           margin="normal"
           type="number"
           label={mode === 'blastp-genes' ? 'Hits per gene' : 'Hits'}
@@ -471,6 +575,19 @@ export default function BlastSelectionDialog({
           }}
           sx={{ ml: 2, width: mode === 'blastp-genes' ? 190 : 180 }}
         />
+        {mode === 'blastp-genes' && localBlastDatabase ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={localAllHits}
+                onChange={event => {
+                  setLocalAllHits(event.target.checked)
+                }}
+              />
+            }
+            label="All local BLAST hits"
+          />
+        ) : null}
         <TextField
           margin="normal"
           type="number"
@@ -522,9 +639,9 @@ export default function BlastSelectionDialog({
           difficult to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
-          BlastTrack batches selected genes into one multi-FASTA request, spaces
-          NCBI submissions at least 10 seconds apart, and polls each RID once
-          per minute.
+          {localBlastDatabase
+            ? 'Local BLAST runs on this JBrowse server using the selected makeblastdb database.'
+            : 'BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID once per minute.'}
         </Typography>
         {running ? (
           <ProgressDots message={progress} />
