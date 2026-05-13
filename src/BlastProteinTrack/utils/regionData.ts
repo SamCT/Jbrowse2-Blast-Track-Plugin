@@ -1,5 +1,5 @@
 import { getConf, readConfObject } from '@jbrowse/core/configuration'
-import { getSession } from '@jbrowse/core/util'
+import { getSession, SimpleFeature } from '@jbrowse/core/util'
 
 import { extractProteinSequence } from './featureSequence'
 import { getBestCdsSet } from './proteinFromCds'
@@ -8,6 +8,11 @@ import type { AbstractSessionModel, Feature } from '@jbrowse/core/util'
 import type { AnyConfigurationModel } from '@jbrowse/core/configuration'
 import type { LinearGenomeViewModel } from '@jbrowse/plugin-linear-genome-view'
 import type { JsonFeature } from './proteinFromCds'
+
+type FeatureJson = JsonFeature &
+  Record<string, unknown> & {
+    uniqueId?: string
+  }
 
 export interface SelectedRegion {
   assemblyName: string
@@ -180,7 +185,8 @@ function deduplicateBlastableGenes(features: Feature[]) {
   )
   const representatives = new Map<string, Feature>()
 
-  for (const feature of sortedFeatures) {
+  for (const renderedFeature of sortedFeatures) {
+    const feature = longestIsoformFeature(renderedFeature)
     const key = featureGroupKey(feature, geneFeatures)
     const existing = representatives.get(key)
     if (!existing || betterBlastRepresentative(feature, existing)) {
@@ -189,6 +195,64 @@ function deduplicateBlastableGenes(features: Feature[]) {
   }
 
   return [...representatives.values()]
+}
+
+function longestIsoformFeature(feature: Feature) {
+  if (featureType(feature) !== 'gene') {
+    return feature
+  }
+
+  const transcript = longestTranscriptSubfeature(feature)
+  return transcript ? transcriptSubfeatureToFeature(feature, transcript) : feature
+}
+
+function longestTranscriptSubfeature(feature: Feature) {
+  const transcripts = transcriptSubfeatures(feature.toJSON() as FeatureJson)
+  return transcripts
+    .filter(transcript => estimatedJsonProteinLength(transcript) > 0)
+    .sort(
+      (a, b) =>
+        estimatedJsonProteinLength(b) - estimatedJsonProteinLength(a) ||
+        featureJsonLength(b) - featureJsonLength(a),
+    )[0]
+}
+
+function transcriptSubfeatures(feature: FeatureJson): FeatureJson[] {
+  return (feature.subfeatures ?? []).flatMap(subfeature => {
+    const json = subfeature as FeatureJson
+    return [
+      ...(isTranscriptFeatureType(json.type) ? [json] : []),
+      ...transcriptSubfeatures(json),
+    ]
+  })
+}
+
+function transcriptSubfeatureToFeature(parent: Feature, transcript: FeatureJson) {
+  const parentJson = parent.toJSON() as FeatureJson
+  const inheritedGeneId =
+    jsonValue(transcript, 'gene_id') ??
+    jsonValue(transcript, 'Parent') ??
+    rawFeatureIdentity(parent) ??
+    parent.id()
+  const transcriptId =
+    jsonValue(transcript, 'ID') ??
+    jsonValue(transcript, 'id') ??
+    jsonValue(transcript, 'Name') ??
+    transcript.uniqueId ??
+    `${transcript.start}-${transcript.end}`
+
+  return new SimpleFeature({
+    id: `${parent.id()}-${String(transcriptId)}`,
+    parent,
+    data: {
+      ...transcript,
+      refName: transcript.refName ?? parentJson.refName,
+      strand: transcript.strand ?? parentJson.strand,
+      gene_id: inheritedGeneId,
+      blastParentGeneId: parent.id(),
+      blastParentGeneName: rawFeatureIdentity(parent),
+    },
+  })
 }
 
 function isTranscriptOfGene(feature: Feature, gene: Feature) {
@@ -225,13 +289,10 @@ function betterBlastRepresentative(candidate: Feature, existing: Feature) {
 }
 
 function featureTypePriority(feature: Feature) {
-  if (featureType(feature) === 'mRNA') {
+  if (isTranscriptFeatureType(featureType(feature))) {
     return 0
   }
-  if (featureType(feature) === 'transcript') {
-    return 1
-  }
-  return 2
+  return 1
 }
 
 function featureGroupKey(feature: Feature, geneFeatures: Feature[]) {
@@ -264,6 +325,41 @@ function estimatedProteinLength(feature: Feature) {
   return Math.floor(
     cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3,
   )
+}
+
+function estimatedJsonProteinLength(feature: FeatureJson) {
+  const embeddedSequence = extractJsonProteinSequence(feature)
+  if (embeddedSequence) {
+    return embeddedSequence.replaceAll(/[^A-Za-z*]/g, '').length
+  }
+
+  const cds = getBestCdsSet(feature)
+  return Math.floor(
+    cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3,
+  )
+}
+
+function extractJsonProteinSequence(feature: FeatureJson) {
+  for (const attribute of [
+    'protein_sequence',
+    'proteinSequence',
+    'translation',
+    'translated_sequence',
+    'seq',
+  ]) {
+    const sequence = normalizeJsonSequenceValue(jsonValue(feature, attribute))
+    if (sequence) {
+      return sequence
+    }
+  }
+  return undefined
+}
+
+function normalizeJsonSequenceValue(value: unknown) {
+  const sequence = Array.isArray(value) ? value[0] : value
+  return typeof sequence === 'string'
+    ? sequence.replaceAll(/\s/g, '').toUpperCase()
+    : undefined
 }
 
 function containsFeature(container: Feature, feature: Feature) {
@@ -330,6 +426,34 @@ function normalizeFeatureIdentity(value: unknown) {
     : undefined
 }
 
+function rawFeatureIdentity(feature: Feature) {
+  return (
+    feature.get('ID') ??
+    feature.get('id') ??
+    feature.get('gene_id') ??
+    feature.get('gene_name') ??
+    feature.get('locus_tag') ??
+    feature.get('Name') ??
+    feature.get('name')
+  )
+}
+
+function jsonValue(feature: FeatureJson, attribute: string) {
+  const value = feature[attribute]
+  if (value !== undefined) {
+    return value
+  }
+
+  const attributes = feature.attributes
+  return attributes && typeof attributes === 'object'
+    ? (attributes as Record<string, unknown>)[attribute]
+    : undefined
+}
+
+function isTranscriptFeatureType(type: unknown) {
+  return type === 'mRNA' || type === 'transcript'
+}
+
 function compareFeatureStart(a: Feature, b: Feature) {
   return featureStart(a) - featureStart(b)
 }
@@ -356,6 +480,10 @@ function featureStrand(feature: Feature) {
 
 function featureLength(feature: Feature) {
   return featureEnd(feature) - featureStart(feature)
+}
+
+function featureJsonLength(feature: JsonFeature) {
+  return feature.end - feature.start
 }
 
 function overlapsRegion(feature: Feature, region: SelectedRegion) {

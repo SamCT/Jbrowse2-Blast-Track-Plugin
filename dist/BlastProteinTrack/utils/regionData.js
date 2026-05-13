@@ -1,5 +1,5 @@
 import { getConf, readConfObject } from '@jbrowse/core/configuration';
-import { getSession } from '@jbrowse/core/util';
+import { getSession, SimpleFeature } from '@jbrowse/core/util';
 import { extractProteinSequence } from './featureSequence';
 import { getBestCdsSet } from './proteinFromCds';
 export async function fetchRegionSequence({ region, view, }) {
@@ -91,7 +91,8 @@ function deduplicateBlastableGenes(features) {
     const sortedFeatures = [...features].sort(compareFeatureStart);
     const geneFeatures = sortedFeatures.filter(feature => featureType(feature) === 'gene');
     const representatives = new Map();
-    for (const feature of sortedFeatures) {
+    for (const renderedFeature of sortedFeatures) {
+        const feature = longestIsoformFeature(renderedFeature);
         const key = featureGroupKey(feature, geneFeatures);
         const existing = representatives.get(key);
         if (!existing || betterBlastRepresentative(feature, existing)) {
@@ -99,6 +100,53 @@ function deduplicateBlastableGenes(features) {
         }
     }
     return [...representatives.values()];
+}
+function longestIsoformFeature(feature) {
+    if (featureType(feature) !== 'gene') {
+        return feature;
+    }
+    const transcript = longestTranscriptSubfeature(feature);
+    return transcript ? transcriptSubfeatureToFeature(feature, transcript) : feature;
+}
+function longestTranscriptSubfeature(feature) {
+    const transcripts = transcriptSubfeatures(feature.toJSON());
+    return transcripts
+        .filter(transcript => estimatedJsonProteinLength(transcript) > 0)
+        .sort((a, b) => estimatedJsonProteinLength(b) - estimatedJsonProteinLength(a) ||
+        featureJsonLength(b) - featureJsonLength(a))[0];
+}
+function transcriptSubfeatures(feature) {
+    return (feature.subfeatures ?? []).flatMap(subfeature => {
+        const json = subfeature;
+        return [
+            ...(isTranscriptFeatureType(json.type) ? [json] : []),
+            ...transcriptSubfeatures(json),
+        ];
+    });
+}
+function transcriptSubfeatureToFeature(parent, transcript) {
+    const parentJson = parent.toJSON();
+    const inheritedGeneId = jsonValue(transcript, 'gene_id') ??
+        jsonValue(transcript, 'Parent') ??
+        rawFeatureIdentity(parent) ??
+        parent.id();
+    const transcriptId = jsonValue(transcript, 'ID') ??
+        jsonValue(transcript, 'id') ??
+        jsonValue(transcript, 'Name') ??
+        transcript.uniqueId ??
+        `${transcript.start}-${transcript.end}`;
+    return new SimpleFeature({
+        id: `${parent.id()}-${String(transcriptId)}`,
+        parent,
+        data: {
+            ...transcript,
+            refName: transcript.refName ?? parentJson.refName,
+            strand: transcript.strand ?? parentJson.strand,
+            gene_id: inheritedGeneId,
+            blastParentGeneId: parent.id(),
+            blastParentGeneName: rawFeatureIdentity(parent),
+        },
+    });
 }
 function isTranscriptOfGene(feature, gene) {
     if (!containsFeature(gene, feature)) {
@@ -128,13 +176,10 @@ function betterBlastRepresentative(candidate, existing) {
     return featureLength(candidate) > featureLength(existing);
 }
 function featureTypePriority(feature) {
-    if (featureType(feature) === 'mRNA') {
+    if (isTranscriptFeatureType(featureType(feature))) {
         return 0;
     }
-    if (featureType(feature) === 'transcript') {
-        return 1;
-    }
-    return 2;
+    return 1;
 }
 function featureGroupKey(feature, geneFeatures) {
     const containingGene = featureType(feature) === 'gene'
@@ -158,6 +203,35 @@ function estimatedProteinLength(feature) {
     }
     const cds = getBestCdsSet(feature.toJSON());
     return Math.floor(cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3);
+}
+function estimatedJsonProteinLength(feature) {
+    const embeddedSequence = extractJsonProteinSequence(feature);
+    if (embeddedSequence) {
+        return embeddedSequence.replaceAll(/[^A-Za-z*]/g, '').length;
+    }
+    const cds = getBestCdsSet(feature);
+    return Math.floor(cds.reduce((total, sub) => total + sub.end - sub.start, 0) / 3);
+}
+function extractJsonProteinSequence(feature) {
+    for (const attribute of [
+        'protein_sequence',
+        'proteinSequence',
+        'translation',
+        'translated_sequence',
+        'seq',
+    ]) {
+        const sequence = normalizeJsonSequenceValue(jsonValue(feature, attribute));
+        if (sequence) {
+            return sequence;
+        }
+    }
+    return undefined;
+}
+function normalizeJsonSequenceValue(value) {
+    const sequence = Array.isArray(value) ? value[0] : value;
+    return typeof sequence === 'string'
+        ? sequence.replaceAll(/\s/g, '').toUpperCase()
+        : undefined;
 }
 function containsFeature(container, feature) {
     return (featureRefName(container) === featureRefName(feature) &&
@@ -213,6 +287,28 @@ function normalizeFeatureIdentity(value) {
             .toLowerCase()
         : undefined;
 }
+function rawFeatureIdentity(feature) {
+    return (feature.get('ID') ??
+        feature.get('id') ??
+        feature.get('gene_id') ??
+        feature.get('gene_name') ??
+        feature.get('locus_tag') ??
+        feature.get('Name') ??
+        feature.get('name'));
+}
+function jsonValue(feature, attribute) {
+    const value = feature[attribute];
+    if (value !== undefined) {
+        return value;
+    }
+    const attributes = feature.attributes;
+    return attributes && typeof attributes === 'object'
+        ? attributes[attribute]
+        : undefined;
+}
+function isTranscriptFeatureType(type) {
+    return type === 'mRNA' || type === 'transcript';
+}
 function compareFeatureStart(a, b) {
     return featureStart(a) - featureStart(b);
 }
@@ -233,6 +329,9 @@ function featureStrand(feature) {
 }
 function featureLength(feature) {
     return featureEnd(feature) - featureStart(feature);
+}
+function featureJsonLength(feature) {
+    return feature.end - feature.start;
 }
 function overlapsRegion(feature, region) {
     const start = featureStart(feature);
