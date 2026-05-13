@@ -140,11 +140,9 @@ function featureGroupKey(feature, geneFeatures) {
     const containingGene = featureType(feature) === 'gene'
         ? undefined
         : geneFeatures.find(gene => isTranscriptOfGene(feature, gene));
-    const identity = [
-        ...geneParentIds(feature),
-        ...(containingGene ? geneIdentityValues(containingGene) : []),
-        ...geneIdentityValues(feature),
-    ][0];
+    const identity = containingGene !== undefined
+        ? geneIdentityValues(containingGene)[0]
+        : (geneParentIds(feature)[0] ?? geneIdentityValues(feature)[0]);
     return identity
         ? `${featureRefName(feature)}:${identity}`
         : containingGene
@@ -177,7 +175,6 @@ function geneParentIds(feature) {
 }
 function geneIdentityValues(feature) {
     return [
-        feature.id(),
         ...[
             'ID',
             'id',
@@ -187,6 +184,7 @@ function geneIdentityValues(feature) {
             'Name',
             'name',
         ].flatMap(attribute => normalizeFeatureValues(feature.get(attribute))),
+        feature.id(),
     ]
         .map(normalizeFeatureIdentity)
         .filter((value) => Boolean(value));
