@@ -10,7 +10,7 @@ import { featuresFromBlastNHits } from '../utils/blastNFeatures';
 import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { fetchLocalBlastDatabases, localBlastDatabaseValue, queryLocalBlastReports, selectedLocalBlastDatabase, } from '../utils/localBlast';
-import { queryBlast, queryBlastReports } from '../utils/ncbiBlast';
+import { queryBlast } from '../utils/ncbiBlast';
 import { getProteinSequence } from '../utils/proteinFromCds';
 import { queryGeneFeature } from '../utils/queryGeneFeatures';
 import { fetchBlastableGenes, fetchRegionSequence, regionLabel, } from '../utils/regionData';
@@ -190,7 +190,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const selectedGenes = genes;
         if (!selectedPrecomputedTable &&
             selectedGenes.length >= highVolumeGeneWarningThreshold) {
-            getSession(model).notify(`Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`, 'warning');
+            getSession(model).notify(`Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds hits to one track as each gene finishes.`, 'warning');
         }
         const queries = [];
         const noSequenceFeatures = [];
@@ -246,38 +246,36 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             getSession(model).notify('Genes were found, but none had extractable CDS/protein sequence for BLASTP. Query markers were added to the BLAST track.', 'warning');
             return;
         }
+        if (!selectedPrecomputedTable) {
+            await runNcbiBlastpGeneQueries({
+                displayedHitLimit,
+                noSequenceFeatures,
+                queries,
+                region,
+                runPrefix,
+                sanitizedHitLimit,
+                sanitizedHspLimit,
+                sanitizedMinIdentityPercent,
+            });
+            return;
+        }
         const query = queries
             .map(({ header, sequence }) => fastaRecord(header, sequence))
             .join('\n');
-        const { reports, rid } = selectedPrecomputedTable
-            ? await queryLocalBlastReports({
-                allHits: localAllHits,
-                query,
-                queryIds: queries.flatMap(({ queryIds }) => queryIds),
-                blastDatabase: selectedPrecomputedTable,
-                blastProgram: 'blastp',
-                hitLimit: sanitizedHitLimit,
-                hspLimit: sanitizedHspLimit,
-                onProgress: message => {
-                    setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`);
-                },
-            })
-            : await queryBlastReports({
-                query,
-                blastDatabase,
-                blastProgram,
-                hitLimit: sanitizedHitLimit,
-                baseUrl: ncbiBlastUrl,
-                onProgress: message => {
-                    setProgress(`BLASTP ${queries.length} genes: ${message}`);
-                },
-            });
-        const resultBlastProgram = selectedPrecomputedTable ? 'blastp' : blastProgram;
-        const resultSource = selectedPrecomputedTable
-            ? 'Precomputed BLASTP'
-            : blastProgram === 'quick-blastp'
-                ? 'NCBI quick-blastp'
-                : 'NCBI BLASTP';
+        const { reports, rid } = await queryLocalBlastReports({
+            allHits: localAllHits,
+            query,
+            queryIds: queries.flatMap(({ queryIds }) => queryIds),
+            blastDatabase: selectedPrecomputedTable,
+            blastProgram: 'blastp',
+            hitLimit: sanitizedHitLimit,
+            hspLimit: sanitizedHspLimit,
+            onProgress: message => {
+                setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`);
+            },
+        });
+        const resultBlastProgram = 'blastp';
+        const resultSource = 'Precomputed BLASTP';
         const hitFeaturesByGene = new Map();
         const reportMatchesByGene = new Map();
         const hitFeatures = queries.flatMap(({ feature, header, idPrefix, queryIds, sequence }, index) => {
@@ -371,6 +369,92 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 .join('; '), 'warning');
         }
     }
+    async function runNcbiBlastpGeneQueries({ displayedHitLimit, noSequenceFeatures, queries, region, runPrefix, sanitizedHitLimit, sanitizedHspLimit, sanitizedMinIdentityPercent, }) {
+        const session = getSession(model);
+        const trackId = sanitizeTrackId(`blastp_genes_${region.refName}_${region.start}_${region.end}_${runPrefix}`);
+        const trackName = `BLASTP gene hits - ${regionLabel(region)}`;
+        const resultSource = blastProgram === 'quick-blastp' ? 'NCBI quick-blastp' : 'NCBI BLASTP';
+        addBlastFeatureTrack({
+            appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
+            assemblyName: region.assemblyName,
+            blastProgram: 'blastp',
+            features: noSequenceFeatures,
+            name: trackName,
+            trackId,
+            view: model,
+        });
+        session.notify(`Started BLASTP for ${queries.length} gene(s). Hits will be added to one track as each gene finishes.`);
+        let finished = 0;
+        let renderedGenes = 0;
+        let genesWithoutRenderedHits = 0;
+        const targetTrackId = appendToExistingTrack ? appendTargetTrack?.trackId : trackId;
+        const jobs = queries.map(async (queryDef) => {
+            try {
+                const { hits, rid } = await queryBlast({
+                    query: fastaRecord(queryDef.header, queryDef.sequence),
+                    blastDatabase,
+                    blastProgram,
+                    hitLimit: sanitizedHitLimit,
+                    baseUrl: ncbiBlastUrl,
+                    onProgress: () => { },
+                });
+                const blastFeatures = featuresFromBlastHits({
+                    blastProgram,
+                    highlightLongerSubjectProteins,
+                    hspLimit: sanitizedHspLimit,
+                    hits,
+                    includeGenericDescriptions,
+                    idPrefix: queryDef.idPrefix,
+                    minIdentityPercent: sanitizedMinIdentityPercent,
+                    queryFeature: queryDef.feature,
+                    queryProteinLength: queryDef.sequence.length,
+                    hitLimit: displayedHitLimit,
+                    showMismatchMarkers,
+                    source: resultSource,
+                });
+                if (blastFeatures.length) {
+                    renderedGenes += 1;
+                    addBlastFeatureTrack({
+                        appendToTrackId: targetTrackId,
+                        assemblyName: region.assemblyName,
+                        baseUrl: ncbiBlastUrl,
+                        blastProgram: 'blastp',
+                        features: blastFeatures,
+                        name: trackName,
+                        rid,
+                        trackId,
+                        view: model,
+                    });
+                }
+                else {
+                    genesWithoutRenderedHits += 1;
+                }
+            }
+            catch (e) {
+                genesWithoutRenderedHits += 1;
+                getSession(model).notifyError(`BLASTP failed for ${queryDef.name}`, e);
+            }
+            finally {
+                finished += 1;
+            }
+        });
+        void Promise.allSettled(jobs).then(() => {
+            session.notify([
+                `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
+                renderedGenes
+                    ? `${renderedGenes} gene(s) added hits to the track`
+                    : 'no genes added visible hits',
+                genesWithoutRenderedHits
+                    ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters`
+                    : '',
+                noSequenceFeatures.length
+                    ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
+                    : '',
+            ]
+                .filter(Boolean)
+                .join('; '), genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined);
+        });
+    }
     return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
                                     setBlastDatabase(nextDatabase);
@@ -402,8 +486,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
-                            ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes, using the longest detected isoform per gene. Hits are drawn over each query gene CDS.'
-                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack batches selected genes into one multi-FASTA request, spaces NCBI submissions at least 10 seconds apart, and polls each RID every 30 seconds after the first check." }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS and added to the same track as each request finishes.'
+                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI submissions at least 10 seconds apart and polls each RID every 30 seconds after the first check." }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
                                     void loadLocalDatabases();
                                 }, sx: { mt: 1, mr: 1 }, variant: "outlined", children: "Load tables" }), _jsx(LocalBlastHelp, {}), localBlastDatabases.length ? (_jsx(TextField, { margin: "normal", select: true, label: "Precomputed table", value: precomputedBlastTableValue, onChange: event => {
                                     setPrecomputedBlastTableValue(event.target.value);

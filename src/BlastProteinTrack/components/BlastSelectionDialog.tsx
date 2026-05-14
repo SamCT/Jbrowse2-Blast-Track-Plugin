@@ -31,7 +31,7 @@ import {
   selectedLocalBlastDatabase,
   type LocalBlastDatabase,
 } from '../utils/localBlast'
-import { queryBlast, queryBlastReports } from '../utils/ncbiBlast'
+import { queryBlast } from '../utils/ncbiBlast'
 import { getProteinSequence } from '../utils/proteinFromCds'
 import { queryGeneFeature } from '../utils/queryGeneFeatures'
 import {
@@ -277,7 +277,7 @@ export default function BlastSelectionDialog({
       selectedGenes.length >= highVolumeGeneWarningThreshold
     ) {
       getSession(model).notify(
-        `Submitting ${selectedGenes.length} genes as one multi-FASTA BLASTP request. NCBI may slow high-volume use; BlastTrack spaces new submissions by at least 10 seconds and polls RIDs once per minute.`,
+        `Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds hits to one track as each gene finishes.`,
         'warning',
       )
     }
@@ -356,39 +356,38 @@ export default function BlastSelectionDialog({
       return
     }
 
+    if (!selectedPrecomputedTable) {
+      await runNcbiBlastpGeneQueries({
+        displayedHitLimit,
+        noSequenceFeatures,
+        queries,
+        region,
+        runPrefix,
+        sanitizedHitLimit,
+        sanitizedHspLimit,
+        sanitizedMinIdentityPercent,
+      })
+      return
+    }
+
     const query = queries
       .map(({ header, sequence }) => fastaRecord(header, sequence))
       .join('\n')
-    const { reports, rid } = selectedPrecomputedTable
-      ? await queryLocalBlastReports({
-          allHits: localAllHits,
-          query,
-          queryIds: queries.flatMap(({ queryIds }) => queryIds),
-          blastDatabase: selectedPrecomputedTable,
-          blastProgram: 'blastp',
-          hitLimit: sanitizedHitLimit,
-          hspLimit: sanitizedHspLimit,
-          onProgress: message => {
-            setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`)
-          },
-        })
-      : await queryBlastReports({
-          query,
-          blastDatabase,
-          blastProgram,
-          hitLimit: sanitizedHitLimit,
-          baseUrl: ncbiBlastUrl,
-          onProgress: message => {
-            setProgress(`BLASTP ${queries.length} genes: ${message}`)
-          },
-        })
+    const { reports, rid } = await queryLocalBlastReports({
+      allHits: localAllHits,
+      query,
+      queryIds: queries.flatMap(({ queryIds }) => queryIds),
+      blastDatabase: selectedPrecomputedTable,
+      blastProgram: 'blastp',
+      hitLimit: sanitizedHitLimit,
+      hspLimit: sanitizedHspLimit,
+      onProgress: message => {
+        setProgress(`Precomputed BLASTP ${queries.length} genes: ${message}`)
+      },
+    })
 
-    const resultBlastProgram = selectedPrecomputedTable ? 'blastp' : blastProgram
-    const resultSource = selectedPrecomputedTable
-      ? 'Precomputed BLASTP'
-      : blastProgram === 'quick-blastp'
-        ? 'NCBI quick-blastp'
-        : 'NCBI BLASTP'
+    const resultBlastProgram = 'blastp'
+    const resultSource = 'Precomputed BLASTP'
     const hitFeaturesByGene = new Map<Feature, FromConfigFeature[]>()
     const reportMatchesByGene = new Map<Feature, QueryReportMatch>()
     const hitFeatures = queries.flatMap(({ feature, header, idPrefix, queryIds, sequence }, index) => {
@@ -497,6 +496,132 @@ export default function BlastSelectionDialog({
         'warning',
       )
     }
+  }
+
+  async function runNcbiBlastpGeneQueries({
+    displayedHitLimit,
+    noSequenceFeatures,
+    queries,
+    region,
+    runPrefix,
+    sanitizedHitLimit,
+    sanitizedHspLimit,
+    sanitizedMinIdentityPercent,
+  }: {
+    displayedHitLimit: number
+    noSequenceFeatures: FromConfigFeature[]
+    queries: {
+      feature: Feature
+      header: string
+      idPrefix: string
+      name: string
+      queryIds: string[]
+      sequence: string
+    }[]
+    region: SelectedRegion
+    runPrefix: string
+    sanitizedHitLimit: number
+    sanitizedHspLimit: number
+    sanitizedMinIdentityPercent: number
+  }) {
+    const session = getSession(model)
+    const trackId = sanitizeTrackId(
+      `blastp_genes_${region.refName}_${region.start}_${region.end}_${runPrefix}`,
+    )
+    const trackName = `BLASTP gene hits - ${regionLabel(region)}`
+    const resultSource =
+      blastProgram === 'quick-blastp' ? 'NCBI quick-blastp' : 'NCBI BLASTP'
+
+    addBlastFeatureTrack({
+      appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
+      assemblyName: region.assemblyName,
+      blastProgram: 'blastp',
+      features: noSequenceFeatures,
+      name: trackName,
+      trackId,
+      view: model,
+    })
+
+    session.notify(
+      `Started BLASTP for ${queries.length} gene(s). Hits will be added to one track as each gene finishes.`,
+    )
+
+    let finished = 0
+    let renderedGenes = 0
+    let genesWithoutRenderedHits = 0
+    const targetTrackId = appendToExistingTrack ? appendTargetTrack?.trackId : trackId
+
+    const jobs = queries.map(async queryDef => {
+      try {
+        const { hits, rid } = await queryBlast({
+          query: fastaRecord(queryDef.header, queryDef.sequence),
+          blastDatabase,
+          blastProgram,
+          hitLimit: sanitizedHitLimit,
+          baseUrl: ncbiBlastUrl,
+          onProgress: () => {},
+        })
+        const blastFeatures = featuresFromBlastHits({
+          blastProgram,
+          highlightLongerSubjectProteins,
+          hspLimit: sanitizedHspLimit,
+          hits,
+          includeGenericDescriptions,
+          idPrefix: queryDef.idPrefix,
+          minIdentityPercent: sanitizedMinIdentityPercent,
+          queryFeature: queryDef.feature,
+          queryProteinLength: queryDef.sequence.length,
+          hitLimit: displayedHitLimit,
+          showMismatchMarkers,
+          source: resultSource,
+        })
+
+        if (blastFeatures.length) {
+          renderedGenes += 1
+          addBlastFeatureTrack({
+            appendToTrackId: targetTrackId,
+            assemblyName: region.assemblyName,
+            baseUrl: ncbiBlastUrl,
+            blastProgram: 'blastp',
+            features: blastFeatures,
+            name: trackName,
+            rid,
+            trackId,
+            view: model,
+          })
+        } else {
+          genesWithoutRenderedHits += 1
+        }
+      } catch (e) {
+        genesWithoutRenderedHits += 1
+        getSession(model).notifyError(
+          `BLASTP failed for ${queryDef.name}`,
+          e,
+        )
+      } finally {
+        finished += 1
+      }
+    })
+
+    void Promise.allSettled(jobs).then(() => {
+      session.notify(
+        [
+          `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
+          renderedGenes
+            ? `${renderedGenes} gene(s) added hits to the track`
+            : 'no genes added visible hits',
+          genesWithoutRenderedHits
+            ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters`
+            : '',
+          noSequenceFeatures.length
+            ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('; '),
+        genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined,
+      )
+    })
   }
 
   return (
@@ -669,7 +794,7 @@ export default function BlastSelectionDialog({
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           {mode === 'blastp-genes'
-            ? 'A single multi-FASTA BLASTP request will be submitted for the selected genes, using the longest detected isoform per gene. Hits are drawn over each query gene CDS.'
+            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS and added to the same track as each request finishes.'
             : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.'}
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
@@ -678,9 +803,8 @@ export default function BlastSelectionDialog({
           difficult to read.
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
-          BlastTrack batches selected genes into one multi-FASTA request, spaces
-          NCBI submissions at least 10 seconds apart, and polls each RID every
-          30 seconds after the first check.
+          BlastTrack spaces NCBI submissions at least 10 seconds apart and polls
+          each RID every 30 seconds after the first check.
         </Typography>
         {mode === 'blastp-genes' ? (
           <>
