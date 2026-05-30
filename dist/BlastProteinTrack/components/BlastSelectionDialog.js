@@ -26,7 +26,9 @@ const defaultMaxRegionBp = 50_000;
 const highVolumeGeneWarningThreshold = 10;
 const ncbiBlastUrl = 'https://blast.ncbi.nlm.nih.gov/Blast.cgi';
 export default function BlastSelectionDialog({ handleClose, mode, model, regions, }) {
-    const appendBlastProgram = mode === 'blastn-region' ? 'blastn' : 'blastp';
+    const isRegionBlast = mode === 'blastn-region' || mode === 'tblastx-region';
+    const regionBlastProgram = mode === 'tblastx-region' ? 'tblastx' : 'blastn';
+    const appendBlastProgram = isRegionBlast ? regionBlastProgram : 'blastp';
     const appendAssemblyName = regions.length === 1 ? regions[0].assemblyName : '';
     const appendableBlastTracks = useMemo(() => appendAssemblyName
         ? getAppendableBlastTracks({
@@ -35,9 +37,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             view: model,
         })
         : [], [appendAssemblyName, appendBlastProgram, model]);
-    const [blastDatabase, setBlastDatabase] = useState(mode === 'blastn-region' ? 'nt' : defaultProteinDatabase);
+    const [blastDatabase, setBlastDatabase] = useState(isRegionBlast ? 'nt' : defaultProteinDatabase);
     const [blastProgram, setBlastProgram] = useState(defaultProteinProgram);
-    const [hitLimit, setHitLimit] = useState(mode === 'blastn-region' ? defaultBlastnHitLimit : defaultBatchHitLimit);
+    const [hitLimit, setHitLimit] = useState(isRegionBlast ? defaultBlastnHitLimit : defaultBatchHitLimit);
     const [hspLimit, setHspLimit] = useState(defaultHspLimit);
     const [localBlastDatabases, setLocalBlastDatabases] = useState([]);
     const [precomputedBlastTableValue, setPrecomputedBlastTableValue] = useState('');
@@ -57,9 +59,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         databases: localBlastDatabases,
         value: precomputedBlastTableValue,
     });
-    const title = mode === 'blastn-region'
-        ? 'BLASTN selected region'
-        : 'BLASTP genes in selected region';
+    const title = mode === 'blastp-genes'
+        ? 'BLASTP genes in selected region'
+        : mode === 'tblastx-region'
+            ? 'TBLASTX selected region'
+            : 'BLASTN selected region';
     const regionText = regions.length === 1
         ? regionLabel(regions[0])
         : `${regions.length} selected regions`;
@@ -67,8 +71,8 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         try {
             setRunning(true);
             setError(undefined);
-            if (mode === 'blastn-region') {
-                await runBlastnRegion();
+            if (isRegionBlast) {
+                await runNucleotideRegionBlast(regionBlastProgram);
             }
             else {
                 await runBlastpGenes('ncbi');
@@ -124,7 +128,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             setLoadingLocalDatabases(false);
         }
     }
-    async function runBlastnRegion() {
+    async function runNucleotideRegionBlast(program) {
         const region = getSingleRegion(regions);
         const regionLength = region.end - region.start;
         const sanitizedMaxRegionBp = sanitizeMaxRegionBp(maxRegionBp);
@@ -141,7 +145,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const { hits, rid } = await queryBlast({
             query: fastaRecord(regionLabel(region), sequence),
             blastDatabase,
-            blastProgram: 'blastn',
+            blastProgram: program,
             hitLimit: sanitizedHitLimit,
             baseUrl: ncbiBlastUrl,
             onProgress: setProgress,
@@ -150,13 +154,14 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
             hitLimit: sanitizedHitLimit,
             hspLimit: sanitizedHspLimit,
             hits,
-            idPrefix: sanitizeTrackId(`region_${region.refName}_${region.start}_${rid}`),
+            idPrefix: sanitizeTrackId(`${program}_region_${region.refName}_${region.start}_${rid}`),
+            blastProgram: program,
             queryLength: sequence.length,
             region,
             showMismatchMarkers,
         });
         if (!features.length) {
-            throw new Error('NCBI BLASTN completed, but no alignments were mapped');
+            throw new Error(`NCBI ${program.toUpperCase()} completed, but no alignments were mapped`);
         }
         addBlastFeatureTrack({
             appendToTrackId: appendToExistingTrack
@@ -164,11 +169,11 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 : undefined,
             assemblyName: region.assemblyName,
             baseUrl: ncbiBlastUrl,
-            blastProgram: 'blastn',
+            blastProgram: program,
             features,
-            name: `BLASTN hits - ${regionLabel(region)}`,
+            name: `${program.toUpperCase()} hits - ${regionLabel(region)}`,
             rid,
-            trackId: sanitizeTrackId(`blastn_${region.refName}_${region.start}_${region.end}_${rid}`),
+            trackId: sanitizeTrackId(`${program}_${region.refName}_${region.start}_${region.end}_${rid}`),
             view: model,
         });
     }
@@ -487,7 +492,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
                             ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS and added to the same track as each request finishes.'
-                            : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI submissions at least 10 seconds apart and polls each RID every 30 seconds after the first check." }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
+                            : mode === 'tblastx-region'
+                                ? 'The selected reference sequence will be submitted to tblastx. Translated HSPs are drawn over the selected genomic span.'
+                                : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI submissions at least 10 seconds apart and polls each RID every 30 seconds after the first check." }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {
                                     void loadLocalDatabases();
                                 }, sx: { mt: 1, mr: 1 }, variant: "outlined", children: "Load tables" }), _jsx(LocalBlastHelp, {}), localBlastDatabases.length ? (_jsx(TextField, { margin: "normal", select: true, label: "Precomputed table", value: precomputedBlastTableValue, onChange: event => {
                                     setPrecomputedBlastTableValue(event.target.value);

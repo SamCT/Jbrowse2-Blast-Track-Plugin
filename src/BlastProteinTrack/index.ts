@@ -102,6 +102,7 @@ function extendViewStateModel(stateModel: IAnyModelType) {
           { type: 'divider' as const },
           regionBlastMenuItem(self, 'blastp-genes'),
           regionBlastMenuItem(self, 'blastn-region'),
+          regionBlastMenuItem(self, 'tblastx-region'),
         ]
       },
     }
@@ -116,7 +117,9 @@ function regionBlastMenuItem(
     label:
       mode === 'blastp-genes'
         ? 'BLASTP genes in selection'
-        : 'BLASTN selected region',
+        : mode === 'tblastx-region'
+          ? 'TBLASTX selected region'
+          : 'BLASTN selected region',
     icon: ManageSearchIcon,
     onClick: () => {
       try {

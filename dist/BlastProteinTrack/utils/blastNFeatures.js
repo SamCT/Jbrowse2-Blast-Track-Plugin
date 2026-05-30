@@ -1,4 +1,6 @@
-export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, queryLength, region, showMismatchMarkers, }) {
+export function featuresFromBlastNHits({ blastProgram = 'blastn', hitLimit, hspLimit, hits, idPrefix, queryLength, region, showMismatchMarkers, }) {
+    const source = blastSource(blastProgram);
+    const translatedSearch = blastProgram === 'tblastx';
     return bestHits(hits, hitLimit, queryLength).flatMap((hit, hitIndex) => {
         const descriptions = hit.description ?? [];
         const description = displayDescription(descriptions);
@@ -9,6 +11,8 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
         }
         const hspBlocks = hsps.map((hsp, hspIndex) => hspToRegionBlock({
             description,
+            source,
+            translatedSearch,
             hitIndex,
             hsp,
             hspIndex,
@@ -18,6 +22,8 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
         const mismatchMarkers = showMismatchMarkers
             ? hsps.flatMap((hsp, hspIndex) => hspMismatchMarkers({
                 description,
+                source,
+                translatedSearch,
                 hitIndex,
                 hsp,
                 hspIndex,
@@ -59,9 +65,11 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
                 hspCount: hsps.length,
                 strand: hspStrand(bestHsp),
                 score: bitScore,
-                source: 'NCBI BLASTN',
-                blastProgram: 'blastn',
-                coordinateProjection: 'Nucleotide HSP query coordinates projected over selected region',
+                source,
+                blastProgram,
+                coordinateProjection: translatedSearch
+                    ? 'Translated HSP query coordinates projected over selected region'
+                    : 'Nucleotide HSP query coordinates projected over selected region',
                 id: label,
                 gene_id: label,
                 queryRegion: `${region.refName}:${region.start + 1}-${region.end}`,
@@ -72,8 +80,17 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
                 note: title,
                 scientificName: description.sciname,
                 taxid: description.taxid,
-                totalAlignedNucleotides: totalAlignLength,
-                identicalNucleotides: totalIdentical,
+                totalAlignedResidues: totalAlignLength,
+                identicalResidues: totalIdentical,
+                ...(translatedSearch
+                    ? {
+                        totalAlignedAminoAcids: totalAlignLength,
+                        identicalAminoAcids: totalIdentical,
+                    }
+                    : {
+                        totalAlignedNucleotides: totalAlignLength,
+                        identicalNucleotides: totalIdentical,
+                    }),
                 bestHspIdentity: bestHsp ? hspStats(bestHsp).identity : undefined,
                 bestHspEvalue: bestHsp?.evalue,
                 bestHspBitScore: bestHsp?.bit_score,
@@ -95,7 +112,7 @@ export function featuresFromBlastNHits({ hitLimit, hspLimit, hits, idPrefix, que
         ];
     });
 }
-function hspToRegionBlock({ description, hitIndex, hsp, hspIndex, idPrefix, region, }) {
+function hspToRegionBlock({ description, source, translatedSearch, hitIndex, hsp, hspIndex, idPrefix, region, }) {
     const start = region.start + Math.min(hsp.query_from, hsp.query_to) - 1;
     const end = region.start + Math.max(hsp.query_from, hsp.query_to);
     return {
@@ -106,46 +123,55 @@ function hspToRegionBlock({ description, hitIndex, hsp, hspIndex, idPrefix, regi
         end,
         name: `HSP ${hspIndex + 1}`,
         strand: hspStrand(hsp),
-        source: 'NCBI BLASTN',
+        source,
         hspNumber: hspIndex + 1,
         queryBpRange: `${Math.min(hsp.query_from, hsp.query_to)}-${Math.max(hsp.query_from, hsp.query_to)}`,
-        coordinateProjection: 'selected region',
-        ...hspStats(hsp),
+        coordinateProjection: translatedSearch
+            ? 'translated query over selected region'
+            : 'selected region',
+        ...hspStats(hsp, translatedSearch),
     };
 }
-function hspMismatchMarkers({ description, hitIndex, hsp, hspIndex, idPrefix, region, }) {
-    return hspMismatchPositions(hsp).map((mismatch, mismatchIndex) => {
-        const start = region.start + mismatch.queryBp - 1;
+function hspMismatchMarkers({ description, source, translatedSearch, hitIndex, hsp, hspIndex, idPrefix, region, }) {
+    return hspMismatchPositions(hsp, translatedSearch).map((mismatch, mismatchIndex) => {
+        const start = region.start +
+            (translatedSearch
+                ? Math.min(mismatch.queryBp, mismatch.queryBp + mismatch.queryDirection * 2) - 1
+                : mismatch.queryBp - 1);
         return {
             uniqueId: `${hitId(description, hitIndex, idPrefix)}_hsp_${hspIndex + 1}_mismatch_${mismatchIndex + 1}`,
             refName: region.refName,
             type: mismatch.kind,
             start,
-            end: start + 1,
+            end: start + (translatedSearch ? 3 : 1),
             name: mismatch.kind === 'gap'
                 ? `Gap Q${mismatch.queryBp}`
                 : `Mismatch Q${mismatch.queryBp}`,
             strand: hspStrand(hsp),
-            source: 'NCBI BLASTN',
+            source,
             hspNumber: hspIndex + 1,
             queryBp: mismatch.queryBp,
             queryResidue: mismatch.queryResidue,
             subjectResidue: mismatch.subjectResidue,
             description: mismatch.kind === 'gap'
-                ? `gap at query base ${mismatch.queryBp}`
-                : `${mismatch.queryResidue}->${mismatch.subjectResidue} at query base ${mismatch.queryBp}`,
+                ? `gap at query ${translatedSearch ? 'codon' : 'base'} ${mismatch.queryBp}`
+                : `${mismatch.queryResidue}->${mismatch.subjectResidue} at query ${translatedSearch ? 'codon' : 'base'} ${mismatch.queryBp}`,
         };
     });
+}
+function blastSource(blastProgram) {
+    return blastProgram === 'tblastx' ? 'NCBI TBLASTX' : 'NCBI BLASTN';
 }
 function hasQueryRange(hsp) {
     return hsp.query_from !== undefined && hsp.query_to !== undefined;
 }
-function hspMismatchPositions(hsp) {
+function hspMismatchPositions(hsp, translatedSearch) {
     const { qseq, hseq } = hsp;
     if (!qseq || !hseq) {
         return [];
     }
     const direction = hsp.query_to >= hsp.query_from ? 1 : -1;
+    const queryStep = translatedSearch ? 3 : 1;
     let queryPos = hsp.query_from;
     const mismatches = [];
     for (let i = 0; i < qseq.length; i++) {
@@ -158,6 +184,7 @@ function hspMismatchPositions(hsp) {
             mismatches.push({
                 kind: 'gap',
                 queryBp: queryPos,
+                queryDirection: direction,
                 queryResidue,
                 subjectResidue,
             });
@@ -168,24 +195,25 @@ function hspMismatchPositions(hsp) {
             mismatches.push({
                 kind: 'mismatch',
                 queryBp: queryPos,
+                queryDirection: direction,
                 queryResidue,
                 subjectResidue,
             });
         }
-        queryPos += direction;
+        queryPos += direction * queryStep;
     }
     return mismatches;
 }
 function hitId(description, index, prefix) {
     const id = (description.accession ??
         description.id ??
-        `blastn_hit_${index + 1}`).replaceAll(/[^A-Za-z0-9_.-]/g, '_');
+        `blast_hit_${index + 1}`).replaceAll(/[^A-Za-z0-9_.-]/g, '_');
     return prefix ? `${prefix}_${id}` : id;
 }
 function hitLabel(description, index) {
-    return description.accession ?? description.id ?? `BLASTN hit ${index + 1}`;
+    return description.accession ?? description.id ?? `BLAST hit ${index + 1}`;
 }
-function hspStats(hsp) {
+function hspStats(hsp, translatedSearch = false) {
     const identity = percent(hsp.identity, hsp.align_len);
     return {
         evalue: hsp.evalue,
@@ -197,8 +225,17 @@ function hspStats(hsp) {
             ? undefined
             : hsp.align_len - hsp.identity - (hsp.gaps ?? 0),
         gaps: hsp.gaps,
-        identicalNucleotides: hsp.identity,
-        alignmentLengthBp: hsp.align_len,
+        identicalResidues: hsp.identity,
+        alignLengthResidues: hsp.align_len,
+        ...(translatedSearch
+            ? {
+                identicalAminoAcids: hsp.identity,
+                alignmentLengthAa: hsp.align_len,
+            }
+            : {
+                identicalNucleotides: hsp.identity,
+                alignmentLengthBp: hsp.align_len,
+            }),
         alignLength: hsp.align_len,
         queryFrom: hsp.query_from,
         queryTo: hsp.query_to,
