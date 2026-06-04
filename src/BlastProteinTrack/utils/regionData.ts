@@ -99,7 +99,19 @@ export async function fetchBlastableGenes({
   region: SelectedRegion
   view: LinearGenomeViewModel
 }) {
-  return getRenderedBlastableGenes({ region, view })
+  const featuresById = new Map<string, Feature>()
+
+  for (const feature of getRenderedBlastableGenes({ region, view })) {
+    featuresById.set(featureKey(feature), feature)
+  }
+
+  for (const feature of await getAdapterBlastableGenes({ region, view })) {
+    featuresById.set(featureKey(feature), feature)
+  }
+
+  return deduplicateBlastableGenes([...featuresById.values()]).sort(
+    compareFeatureStart,
+  )
 }
 
 function getRenderedBlastableGenes({
@@ -168,6 +180,66 @@ function isRenderedCandidateFeatureTrack(
     | string[]
     | undefined
   return !assemblyNames?.length || assemblyNames.includes(assemblyName)
+}
+
+async function getAdapterBlastableGenes({
+  region,
+  view,
+}: {
+  region: SelectedRegion
+  view: LinearGenomeViewModel
+}) {
+  const maybeView = view as LinearGenomeViewModel & {
+    tracks?: {
+      type?: string
+      configuration?: AnyConfigurationModel
+    }[]
+  }
+  const session = getSession(view) as AbstractSessionModel
+  const featuresById = new Map<string, Feature>()
+  const tracks = (maybeView.tracks ?? []).filter(track =>
+    isRenderedCandidateFeatureTrack(track, region.assemblyName),
+  )
+
+  await Promise.all(
+    tracks.map(async (track, index) => {
+      const adapterConfig = readOptionalConf(track.configuration, 'adapter')
+      if (!adapterConfig) {
+        return
+      }
+
+      const trackId = String(
+        readOptionalConf(track.configuration, 'trackId') ?? index,
+      )
+      const sessionId = `blast-track-region-features-${trackId}-${index}`
+      try {
+        const features = (await session.rpcManager.call(
+          sessionId,
+          'CoreGetFeatures',
+          {
+            adapterConfig,
+            sessionId,
+            regions: [region],
+          },
+        )) as Feature[]
+
+        for (const feature of features) {
+          if (
+            !isBlastableGeneFeature(feature) ||
+            !overlapsRegion(feature, region)
+          ) {
+            continue
+          }
+          featuresById.set(featureKey(feature), feature)
+        }
+      } catch {
+        // Some visible feature tracks can use adapters that are not queryable by
+        // CoreGetFeatures. They should not block other gene tracks.
+      }
+    }),
+  )
+
+  return [...featuresById.values()]
 }
 
 export function regionLabel(region: SelectedRegion) {

@@ -275,7 +275,7 @@ export default function BlastSelectionDialog({
     const genes = await fetchBlastableGenes({ region, view: model })
     if (!genes.length) {
       throw new Error(
-        `No visible gene, mRNA, or transcript features found in ${regionLabel(region)}. Zoom in until the gene track is rendered, then run BLASTP genes in selection again.`,
+        `No gene, mRNA, or transcript features found in visible feature tracks for ${regionLabel(region)}. Show a compatible gene annotation track for this assembly, then run BLASTP genes in selection again.`,
       )
     }
 
