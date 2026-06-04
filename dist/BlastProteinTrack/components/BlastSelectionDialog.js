@@ -7,7 +7,7 @@ import ProgressDots from './ProgressDots';
 import LocalBlastHelp from './LocalBlastHelp';
 import { featuresFromBlastHits } from '../utils/blastFeatures';
 import { featuresFromBlastNHits } from '../utils/blastNFeatures';
-import { addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
+import { addBlastResultLink, addBlastFeatureTrack, getAppendableBlastTracks, sanitizeTrackId, } from '../utils/blastTrackConfig';
 import { getFeatureName } from '../utils/featureSequence';
 import { fetchLocalBlastDatabases, localBlastDatabaseValue, queryLocalBlastReports, selectedLocalBlastDatabase, } from '../utils/localBlast';
 import { queryBlast } from '../utils/ncbiBlast';
@@ -195,7 +195,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const selectedGenes = genes;
         if (!selectedPrecomputedTable &&
             selectedGenes.length >= highVolumeGeneWarningThreshold) {
-            getSession(model).notify(`Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds hits to one track as each gene finishes.`, 'warning');
+            getSession(model).notify(`Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds one track after all genes finish.`, 'warning');
         }
         const queries = [];
         const noSequenceFeatures = [];
@@ -379,21 +379,12 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
         const trackId = sanitizeTrackId(`blastp_genes_${region.refName}_${region.start}_${region.end}_${runPrefix}`);
         const trackName = `BLASTP gene hits - ${regionLabel(region)}`;
         const resultSource = blastProgram === 'quick-blastp' ? 'NCBI quick-blastp' : 'NCBI BLASTP';
-        addBlastFeatureTrack({
-            appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
-            assemblyName: region.assemblyName,
-            blastProgram: 'blastp',
-            features: noSequenceFeatures,
-            name: trackName,
-            trackId,
-            view: model,
-        });
-        session.notify(`Started BLASTP for ${queries.length} gene(s). Hits will be added to one track as each gene finishes.`);
+        session.notify(`Started BLASTP for ${queries.length} gene(s). One track will be added after all genes finish.`);
         let finished = 0;
         let renderedGenes = 0;
         let genesWithoutRenderedHits = 0;
-        const targetTrackId = appendToExistingTrack ? appendTargetTrack?.trackId : trackId;
-        const jobs = queries.map(async (queryDef) => {
+        setProgress(`Running BLASTP for ${queries.length} gene(s)...`);
+        const jobs = queries.map(async (queryDef, index) => {
             try {
                 const { hits, rid } = await queryBlast({
                     query: fastaRecord(queryDef.header, queryDef.sequence),
@@ -401,7 +392,9 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                     blastProgram,
                     hitLimit: sanitizedHitLimit,
                     baseUrl: ncbiBlastUrl,
-                    onProgress: () => { },
+                    onProgress: message => {
+                        setProgress(`Gene ${index + 1}/${queries.length} (${queryDef.name}): ${message}`);
+                    },
                 });
                 const blastFeatures = featuresFromBlastHits({
                     blastProgram,
@@ -419,46 +412,69 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                 });
                 if (blastFeatures.length) {
                     renderedGenes += 1;
-                    addBlastFeatureTrack({
-                        appendToTrackId: targetTrackId,
-                        assemblyName: region.assemblyName,
+                    return blastFeatures.map(feature => addBlastResultLink(feature, {
                         baseUrl: ncbiBlastUrl,
-                        blastProgram: 'blastp',
-                        features: blastFeatures,
-                        name: trackName,
                         rid,
-                        trackId,
-                        view: model,
-                    });
+                    }));
                 }
-                else {
-                    genesWithoutRenderedHits += 1;
-                }
+                genesWithoutRenderedHits += 1;
+                return [
+                    queryGeneFeature({
+                        feature: queryDef.feature,
+                        hitCount: 0,
+                        idPrefix: queryDef.idPrefix,
+                        status: 'no_hits',
+                        statusDetail: `no hits passed the current filters; try lowering minimum identity below ${sanitizedMinIdentityPercent}% or including hypothetical/uncharacterized hits`,
+                    }),
+                ];
             }
             catch (e) {
                 genesWithoutRenderedHits += 1;
                 getSession(model).notifyError(`BLASTP failed for ${queryDef.name}`, e);
+                return [
+                    queryGeneFeature({
+                        feature: queryDef.feature,
+                        hitCount: 0,
+                        idPrefix: queryDef.idPrefix,
+                        status: 'no_hits',
+                        statusDetail: `BLASTP failed: ${errorMessage(e)}`,
+                    }),
+                ];
             }
             finally {
                 finished += 1;
+                setProgress(`Finished ${finished}/${queries.length} BLASTP gene request(s)...`);
             }
         });
-        void Promise.allSettled(jobs).then(() => {
-            session.notify([
-                `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
-                renderedGenes
-                    ? `${renderedGenes} gene(s) added hits to the track`
-                    : 'no genes added visible hits',
-                genesWithoutRenderedHits
-                    ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters`
-                    : '',
-                noSequenceFeatures.length
-                    ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
-                    : '',
-            ]
-                .filter(Boolean)
-                .join('; '), genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined);
+        const settled = await Promise.all(jobs);
+        const features = [...noSequenceFeatures, ...settled.flat()];
+        if (!features.length) {
+            throw new Error('BLASTP finished, but no genes produced track features.');
+        }
+        setProgress(`Adding BLASTP track for ${regionLabel(region)}...`);
+        addBlastFeatureTrack({
+            appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
+            assemblyName: region.assemblyName,
+            blastProgram: 'blastp',
+            features,
+            name: trackName,
+            trackId,
+            view: model,
         });
+        session.notify([
+            `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
+            renderedGenes
+                ? `${renderedGenes} gene(s) added hits to the track`
+                : 'no genes added visible hits',
+            genesWithoutRenderedHits
+                ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters or failed`
+                : '',
+            noSequenceFeatures.length
+                ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
+                : '',
+        ]
+            .filter(Boolean)
+            .join('; '), genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined);
     }
     return (_jsxs(Dialog, { maxWidth: "lg", title: title, open: true, onClose: handleClose, children: [_jsxs(DialogContent, { sx: { width: '48rem', maxWidth: '90vw' }, children: [error ? _jsx(ErrorMessage, { error: error }) : null, mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(TextField, { margin: "normal", select: true, label: "BLAST database", value: blastDatabase, onChange: event => {
                                     const nextDatabase = event.target.value;
@@ -491,7 +507,7 @@ export default function BlastSelectionDialog({ handleClose, mode, model, regions
                             } }), label: "Show mismatch/gap ticks" }), appendTargetTrack ? (_jsx(FormControlLabel, { control: _jsx(Checkbox, { checked: appendToExistingTrack, onChange: event => {
                                 setAppendToExistingTrack(event.target.checked);
                             } }), label: `Append to existing ${appendBlastProgram.toUpperCase()} track (experimental): ${appendTargetTrack.name}` })) : null, _jsxs(Typography, { sx: { mt: 2 }, variant: "body2", children: ["Selection: ", regionText] }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: mode === 'blastp-genes'
-                            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS and added to the same track as each request finishes.'
+                            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS after all requests finish.'
                             : mode === 'tblastx-region'
                                 ? 'The selected reference sequence will be submitted to tblastx. Translated HSPs are drawn over the selected genomic span.'
                                 : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.' }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "Mismatch and gap counts are kept in feature details. Red mismatch and yellow gap ticks are optional because dense alignments can be difficult to read." }), _jsx(Typography, { sx: { mt: 1 }, variant: "body2", children: "BlastTrack spaces NCBI submissions at least 10 seconds apart and polls each RID every 30 seconds after the first check." }), mode === 'blastp-genes' ? (_jsxs(_Fragment, { children: [_jsx(Typography, { sx: { mt: 3 }, variant: "subtitle2", children: "Precomputed BLASTP table" }), _jsx(Button, { disabled: running || loadingLocalDatabases, onClick: () => {

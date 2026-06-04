@@ -364,7 +364,7 @@ export function sanitizeTrackId(value: string) {
   return value.replaceAll(/[^A-Za-z0-9_.-]/g, '_')
 }
 
-function addBlastResultLink(
+export function addBlastResultLink(
   feature: FromConfigFeature,
   {
     baseUrl,

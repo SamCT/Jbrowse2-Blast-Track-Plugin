@@ -19,6 +19,7 @@ import LocalBlastHelp from './LocalBlastHelp'
 import { featuresFromBlastHits } from '../utils/blastFeatures'
 import { featuresFromBlastNHits } from '../utils/blastNFeatures'
 import {
+  addBlastResultLink,
   addBlastFeatureTrack,
   getAppendableBlastTracks,
   sanitizeTrackId,
@@ -285,7 +286,7 @@ export default function BlastSelectionDialog({
       selectedGenes.length >= highVolumeGeneWarningThreshold
     ) {
       getSession(model).notify(
-        `Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds hits to one track as each gene finishes.`,
+        `Submitting ${selectedGenes.length} genes as separate BLASTP requests. NCBI may slow high-volume use; BlastTrack spaces submissions by at least 10 seconds and adds one track after all genes finish.`,
         'warning',
       )
     }
@@ -540,26 +541,16 @@ export default function BlastSelectionDialog({
     const resultSource =
       blastProgram === 'quick-blastp' ? 'NCBI quick-blastp' : 'NCBI BLASTP'
 
-    addBlastFeatureTrack({
-      appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
-      assemblyName: region.assemblyName,
-      blastProgram: 'blastp',
-      features: noSequenceFeatures,
-      name: trackName,
-      trackId,
-      view: model,
-    })
-
     session.notify(
-      `Started BLASTP for ${queries.length} gene(s). Hits will be added to one track as each gene finishes.`,
+      `Started BLASTP for ${queries.length} gene(s). One track will be added after all genes finish.`,
     )
 
     let finished = 0
     let renderedGenes = 0
     let genesWithoutRenderedHits = 0
-    const targetTrackId = appendToExistingTrack ? appendTargetTrack?.trackId : trackId
 
-    const jobs = queries.map(async queryDef => {
+    setProgress(`Running BLASTP for ${queries.length} gene(s)...`)
+    const jobs = queries.map(async (queryDef, index) => {
       try {
         const { hits, rid } = await queryBlast({
           query: fastaRecord(queryDef.header, queryDef.sequence),
@@ -567,7 +558,11 @@ export default function BlastSelectionDialog({
           blastProgram,
           hitLimit: sanitizedHitLimit,
           baseUrl: ncbiBlastUrl,
-          onProgress: () => {},
+          onProgress: message => {
+            setProgress(
+              `Gene ${index + 1}/${queries.length} (${queryDef.name}): ${message}`,
+            )
+          },
         })
         const blastFeatures = featuresFromBlastHits({
           blastProgram,
@@ -586,50 +581,81 @@ export default function BlastSelectionDialog({
 
         if (blastFeatures.length) {
           renderedGenes += 1
-          addBlastFeatureTrack({
-            appendToTrackId: targetTrackId,
-            assemblyName: region.assemblyName,
-            baseUrl: ncbiBlastUrl,
-            blastProgram: 'blastp',
-            features: blastFeatures,
-            name: trackName,
-            rid,
-            trackId,
-            view: model,
-          })
-        } else {
-          genesWithoutRenderedHits += 1
+          return blastFeatures.map(feature =>
+            addBlastResultLink(feature, {
+              baseUrl: ncbiBlastUrl,
+              rid,
+            }),
+          )
         }
+
+        genesWithoutRenderedHits += 1
+        return [
+          queryGeneFeature({
+            feature: queryDef.feature,
+            hitCount: 0,
+            idPrefix: queryDef.idPrefix,
+            status: 'no_hits',
+            statusDetail: `no hits passed the current filters; try lowering minimum identity below ${sanitizedMinIdentityPercent}% or including hypothetical/uncharacterized hits`,
+          }),
+        ]
       } catch (e) {
         genesWithoutRenderedHits += 1
         getSession(model).notifyError(
           `BLASTP failed for ${queryDef.name}`,
           e,
         )
+        return [
+          queryGeneFeature({
+            feature: queryDef.feature,
+            hitCount: 0,
+            idPrefix: queryDef.idPrefix,
+            status: 'no_hits',
+            statusDetail: `BLASTP failed: ${errorMessage(e)}`,
+          }),
+        ]
       } finally {
         finished += 1
+        setProgress(
+          `Finished ${finished}/${queries.length} BLASTP gene request(s)...`,
+        )
       }
     })
 
-    void Promise.allSettled(jobs).then(() => {
-      session.notify(
-        [
-          `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
-          renderedGenes
-            ? `${renderedGenes} gene(s) added hits to the track`
-            : 'no genes added visible hits',
-          genesWithoutRenderedHits
-            ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters`
-            : '',
-          noSequenceFeatures.length
-            ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
-            : '',
-        ]
-          .filter(Boolean)
-          .join('; '),
-        genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined,
-      )
+    const settled = await Promise.all(jobs)
+    const features = [...noSequenceFeatures, ...settled.flat()]
+    if (!features.length) {
+      throw new Error('BLASTP finished, but no genes produced track features.')
+    }
+
+    setProgress(`Adding BLASTP track for ${regionLabel(region)}...`)
+    addBlastFeatureTrack({
+      appendToTrackId: appendToExistingTrack ? appendTargetTrack?.trackId : undefined,
+      assemblyName: region.assemblyName,
+      blastProgram: 'blastp',
+      features,
+      name: trackName,
+      trackId,
+      view: model,
     })
+
+    session.notify(
+      [
+        `BLASTP finished for ${finished}/${queries.length} submitted gene(s)`,
+        renderedGenes
+          ? `${renderedGenes} gene(s) added hits to the track`
+          : 'no genes added visible hits',
+        genesWithoutRenderedHits
+          ? `${genesWithoutRenderedHits} gene(s) had no hits passing filters or failed`
+          : '',
+        noSequenceFeatures.length
+          ? `${noSequenceFeatures.length} gene(s) had no CDS/protein sequence`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('; '),
+      genesWithoutRenderedHits || noSequenceFeatures.length ? 'warning' : undefined,
+    )
   }
 
   return (
@@ -802,7 +828,7 @@ export default function BlastSelectionDialog({
         </Typography>
         <Typography sx={{ mt: 1 }} variant="body2">
           {mode === 'blastp-genes'
-            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS and added to the same track as each request finishes.'
+            ? 'One BLASTP request will be submitted per selected gene, using the longest detected isoform per gene. Hits are drawn over each query gene CDS after all requests finish.'
             : mode === 'tblastx-region'
               ? 'The selected reference sequence will be submitted to tblastx. Translated HSPs are drawn over the selected genomic span.'
               : 'The selected reference sequence will be submitted to blastn. HSPs are drawn over the selected genomic span.'}

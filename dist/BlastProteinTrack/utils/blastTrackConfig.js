@@ -218,7 +218,7 @@ function uniqueFeatureId(baseId, seen) {
 export function sanitizeTrackId(value) {
     return value.replaceAll(/[^A-Za-z0-9_.-]/g, '_');
 }
-function addBlastResultLink(feature, { baseUrl, rid, }) {
+export function addBlastResultLink(feature, { baseUrl, rid, }) {
     return {
         ...feature,
         blastRid: rid,

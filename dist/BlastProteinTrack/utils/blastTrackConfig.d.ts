@@ -32,3 +32,7 @@ export declare function getAppendableBlastTracks({ assemblyName, blastProgram, v
     view: LinearGenomeViewModel;
 }): AppendableBlastTrack[];
 export declare function sanitizeTrackId(value: string): string;
+export declare function addBlastResultLink(feature: FromConfigFeature, { baseUrl, rid, }: {
+    baseUrl: string;
+    rid: string;
+}): FromConfigFeature;
